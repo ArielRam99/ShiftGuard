@@ -30,3 +30,7 @@ jobs:
     - name: Verify Application Initialization
       run: |
         python -c "import app; print('App imported and database initialized successfully!')"
+
+    - name: Run Unit Tests
+          run: |
+            python -m unittest tests.py

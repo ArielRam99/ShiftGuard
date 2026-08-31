@@ -2,3 +2,4 @@ shiftguard.db
 *.db
 *.sqlite
 *.sqlite3
+*.pyc
