@@ -41,6 +41,12 @@ CREATE TABLE IF NOT EXISTS shifts (
     workload_score REAL NOT NULL CHECK (workload_score BETWEEN 0 AND 100),
     required_staff INTEGER NOT NULL CHECK (required_staff > 0),
     model_source TEXT NOT NULL,
+    staffing_range_min INTEGER CHECK (staffing_range_min > 0),
+    staffing_range_max INTEGER CHECK (staffing_range_max > 0),
+    confidence_level REAL CHECK (
+        confidence_level IS NULL OR confidence_level BETWEEN 0 AND 1
+    ),
+    model_mae REAL CHECK (model_mae IS NULL OR model_mae >= 0),
     status TEXT NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'approved', 'rejected')),
     decided_by TEXT,
