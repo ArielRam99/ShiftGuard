@@ -1,0 +1,4 @@
+shiftguard.db
+*.db
+*.sqlite
+*.sqlite3

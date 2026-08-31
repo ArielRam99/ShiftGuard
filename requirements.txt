@@ -1,0 +1,9 @@
+Install Python version 3.13.7
+
+run these commands down below to install requirments
+python -m pip install pandas
+python -m pip install numpy
+python -m pip install scikit-learn
+python -m pip install Flask
+
+in VS code, go to extensions and install SQLite and SQLite viewer to view db file
