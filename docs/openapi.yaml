@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ShiftGuard AI API
-  version: 1.0.0
+  version: 1.1.0
   summary: Integration contract for the ShiftGuard AI scheduling MVP
   description: |
     The ShiftGuard AI API manages employees and availability, generates advisory
@@ -102,9 +102,72 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
               example:
                 error: An employee with that name already exists
+  /api/employees/{employee_id}:
+    parameters:
+      - $ref: "#/components/parameters/EmployeeId"
+    patch:
+      tags: [Employees]
+      operationId: updateEmployee
+      summary: Update or deactivate an employee
+      description: |
+        Updates one or more employee fields. Set `active` to false to deactivate
+        an employee without deleting historical schedules or availability.
+        Deactivated employees are excluded from new recommendations.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateEmployeeRequest"
+            example:
+              role: Supervisor
+              max_weekly_hours: 35
+              active: false
+      responses:
+        "200":
+          description: Updated employee.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: The employee does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Employee not found
+        "409":
+          description: Another employee already uses the requested name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /api/employees/{employee_id}/availability:
     parameters:
       - $ref: "#/components/parameters/EmployeeId"
+    get:
+      tags: [Employees]
+      operationId: listEmployeeAvailability
+      summary: List an employee's recurring availability
+      responses:
+        "200":
+          description: Availability ordered by day and start time.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvailabilityListResponse"
+        "404":
+          description: The employee does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Employee not found
     post:
       tags: [Employees]
       operationId: addEmployeeAvailability
@@ -147,6 +210,97 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
               example:
                 error: That availability record already exists
+  /api/availability/{availability_id}:
+    parameters:
+      - $ref: "#/components/parameters/AvailabilityId"
+    patch:
+      tags: [Employees]
+      operationId: updateAvailability
+      summary: Update recurring availability
+      description: Updates one or more fields while preserving omitted values.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAvailabilityRequest"
+            example:
+              start_time: "07:30"
+              end_time: "17:30"
+      responses:
+        "200":
+          description: Updated availability.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Availability"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/AvailabilityNotFound"
+        "409":
+          description: The update would duplicate another availability record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: That availability record already exists
+    delete:
+      tags: [Employees]
+      operationId: deleteAvailability
+      summary: Delete recurring availability
+      responses:
+        "204":
+          description: Availability deleted; the response has no body.
+        "404":
+          $ref: "#/components/responses/AvailabilityNotFound"
+  /api/shifts:
+    get:
+      tags: [Scheduling]
+      operationId: listShifts
+      summary: List and filter schedules
+      description: |
+        Returns schedules in ascending date, start-time, and identifier order.
+        Filters are combined with AND. `employee_id` matches schedules containing
+        an assignment for that employee.
+      parameters:
+        - name: date_from
+          in: query
+          description: Inclusive start date.
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          description: Inclusive end date.
+          schema:
+            type: string
+            format: date
+        - name: required_role
+          in: query
+          description: Case-insensitive exact role match.
+          schema:
+            type: string
+            minLength: 1
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/ShiftStatus"
+        - name: employee_id
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Matching schedule collection.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShiftListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
   /api/shifts/recommendations:
     post:
       tags: [Scheduling]
@@ -267,6 +421,14 @@ components:
       schema:
         type: integer
         minimum: 1
+    AvailabilityId:
+      name: availability_id
+      in: path
+      required: true
+      description: Positive availability identifier.
+      schema:
+        type: integer
+        minimum: 1
   responses:
     BadRequest:
       description: Invalid JSON, a missing field, or a failed validation rule.
@@ -289,6 +451,14 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
           example:
             error: Shift not found
+    AvailabilityNotFound:
+      description: The availability record does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: Availability not found
   schemas:
     HealthResponse:
       type: object
@@ -341,6 +511,27 @@ components:
           type: number
           minimum: 0
           default: 0
+    UpdateEmployeeRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+        role:
+          type: string
+          minLength: 1
+        max_weekly_hours:
+          type: number
+          minimum: 1
+          maximum: 168
+        hourly_rate:
+          type: number
+          minimum: 0
+        active:
+          type: boolean
+          description: False deactivates and true reactivates the employee.
     Employee:
       type: object
       required:
@@ -384,6 +575,19 @@ components:
           $ref: "#/components/schemas/LocalTime"
         end_time:
           $ref: "#/components/schemas/LocalTime"
+    UpdateAvailabilityRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        day_of_week:
+          type: integer
+          minimum: 0
+          maximum: 6
+        start_time:
+          $ref: "#/components/schemas/LocalTime"
+        end_time:
+          $ref: "#/components/schemas/LocalTime"
     Availability:
       type: object
       required: [id, employee_id, day_of_week, start_time, end_time]
@@ -402,6 +606,14 @@ components:
           $ref: "#/components/schemas/LocalTime"
         end_time:
           $ref: "#/components/schemas/LocalTime"
+    AvailabilityListResponse:
+      type: object
+      required: [availability]
+      properties:
+        availability:
+          type: array
+          items:
+            $ref: "#/components/schemas/Availability"
     CreateRecommendationRequest:
       type: object
       required:
@@ -510,6 +722,14 @@ components:
         requires_manager_approval:
           type: boolean
           description: True exactly while `status` is `draft`.
+    ShiftListResponse:
+      type: object
+      required: [shifts]
+      properties:
+        shifts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Shift"
     RecommendationResponse:
       allOf:
         - $ref: "#/components/schemas/Shift"

@@ -15,18 +15,26 @@ start with `/api`.
 ## Manager workflow
 
 1. Create employees with `POST /api/employees`.
-2. Add recurring availability with
+2. Update or deactivate employees with `PATCH /api/employees/{employee_id}`.
+3. Add recurring availability with
    `POST /api/employees/{employee_id}/availability`.
-3. Request a draft with `POST /api/shifts/recommendations`.
-4. Display the returned assignments, reasons, overtime values, and
+4. List availability with `GET /api/employees/{employee_id}/availability`,
+   and maintain it with `PATCH` or `DELETE /api/availability/{availability_id}`.
+5. Request a draft with `POST /api/shifts/recommendations`.
+6. Display the returned assignments, reasons, overtime values, and
    `coverage_gap` for manager review.
-5. Record the manager's final action with
+7. Record the manager's final action with
    `PATCH /api/shifts/{shift_id}/decision`.
-6. Retrieve the saved schedule with `GET /api/shifts/{shift_id}`.
+8. Retrieve a saved schedule with `GET /api/shifts/{shift_id}`, or populate a
+   schedule view with filtered `GET /api/shifts` requests.
 
 Recommendations never become final automatically. The frontend should not
 present a `draft` schedule as approved, and it should show a clear warning when
 `coverage_gap` or any `projected_overtime_hours` value is greater than zero.
+
+`GET /api/shifts` accepts inclusive `date_from` and `date_to` values plus
+case-insensitive `required_role`, `status`, and `employee_id` filters. Filters
+are combined with AND.
 
 ## Contract compatibility policy
 

@@ -68,12 +68,50 @@ def _time(value, field):
 
 
 def _date(value):
+    return _date_field(value, "shift_date")
+
+
+def _date_field(value, field):
     if not isinstance(value, str):
-        raise APIError("'shift_date' must use YYYY-MM-DD format")
+        raise APIError(f"'{field}' must use YYYY-MM-DD format")
     try:
         return date.fromisoformat(value)
     except ValueError as error:
-        raise APIError("'shift_date' must be a valid YYYY-MM-DD date") from error
+        raise APIError(f"'{field}' must be a valid YYYY-MM-DD date") from error
+
+
+def _employee(database, employee_id):
+    employee = database.execute(
+        """
+        SELECT id, name, role, max_weekly_hours, hourly_rate, active, created_at
+        FROM employees WHERE id = ?
+        """,
+        (employee_id,),
+    ).fetchone()
+    if employee is None:
+        raise APIError("Employee not found", 404)
+    return employee
+
+
+def _availability(database, availability_id):
+    availability = database.execute(
+        """
+        SELECT id, employee_id, day_of_week, start_time, end_time
+        FROM availability WHERE id = ?
+        """,
+        (availability_id,),
+    ).fetchone()
+    if availability is None:
+        raise APIError("Availability not found", 404)
+    return availability
+
+
+def _day_of_week(value):
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise APIError("'day_of_week' must be an integer from 0 (Monday) to 6")
+    if value < 0 or value > 6:
+        raise APIError("'day_of_week' must be between 0 (Monday) and 6 (Sunday)")
+    return value
 
 
 @bp.get("/health")
@@ -144,14 +182,71 @@ def create_employee():
     return jsonify(dict(employee)), 201
 
 
+@bp.patch("/employees/<int:employee_id>")
+def update_employee(employee_id):
+    body = _json_body()
+    supported_fields = {
+        "name", "role", "max_weekly_hours", "hourly_rate", "active"
+    }
+    unknown_fields = set(body) - supported_fields
+    if unknown_fields:
+        raise APIError(
+            "Unsupported employee fields",
+            details={"fields": sorted(unknown_fields)},
+        )
+    if not supported_fields.intersection(body):
+        raise APIError("At least one employee field must be provided")
+
+    database = get_db()
+    _employee(database, employee_id)
+    updates = {}
+    if "name" in body:
+        updates["name"] = _required_text(body, "name")
+    if "role" in body:
+        updates["role"] = _required_text(body, "role")
+    if "max_weekly_hours" in body:
+        updates["max_weekly_hours"] = _number(
+            body, "max_weekly_hours", minimum=1, maximum=168
+        )
+    if "hourly_rate" in body:
+        updates["hourly_rate"] = _number(body, "hourly_rate", minimum=0)
+    if "active" in body:
+        if not isinstance(body["active"], bool):
+            raise APIError("'active' must be true or false")
+        updates["active"] = int(body["active"])
+
+    assignments = ", ".join(f"{field} = ?" for field in updates)
+    try:
+        database.execute(
+            f"UPDATE employees SET {assignments} WHERE id = ?",
+            [*updates.values(), employee_id],
+        )
+        database.commit()
+    except sqlite3.IntegrityError as error:
+        raise APIError("An employee with that name already exists", 409) from error
+    return jsonify(dict(_employee(database, employee_id)))
+
+
+@bp.get("/employees/<int:employee_id>/availability")
+def list_employee_availability(employee_id):
+    database = get_db()
+    _employee(database, employee_id)
+    availability = database.execute(
+        """
+        SELECT id, employee_id, day_of_week, start_time, end_time
+        FROM availability
+        WHERE employee_id = ?
+        ORDER BY day_of_week, start_time, end_time, id
+        """,
+        (employee_id,),
+    ).fetchall()
+    return jsonify({"availability": [dict(row) for row in availability]})
+
+
 @bp.post("/employees/<int:employee_id>/availability")
 def add_availability(employee_id):
     body = _json_body()
-    day_of_week = body.get("day_of_week")
-    if isinstance(day_of_week, bool) or not isinstance(day_of_week, int):
-        raise APIError("'day_of_week' must be an integer from 0 (Monday) to 6")
-    if day_of_week < 0 or day_of_week > 6:
-        raise APIError("'day_of_week' must be between 0 (Monday) and 6 (Sunday)")
+    day_of_week = _day_of_week(body.get("day_of_week"))
 
     start_time = _time(body.get("start_time"), "start_time")
     end_time = _time(body.get("end_time"), "end_time")
@@ -159,10 +254,7 @@ def add_availability(employee_id):
         raise APIError("'end_time' must be later than 'start_time'")
 
     database = get_db()
-    if database.execute(
-        "SELECT id FROM employees WHERE id = ?", (employee_id,)
-    ).fetchone() is None:
-        raise APIError("Employee not found", 404)
+    _employee(database, employee_id)
 
     try:
         cursor = database.execute(
@@ -189,6 +281,133 @@ def add_availability(employee_id):
         ),
         201,
     )
+
+
+@bp.patch("/availability/<int:availability_id>")
+def update_availability(availability_id):
+    body = _json_body()
+    supported_fields = {"day_of_week", "start_time", "end_time"}
+    unknown_fields = set(body) - supported_fields
+    if unknown_fields:
+        raise APIError(
+            "Unsupported availability fields",
+            details={"fields": sorted(unknown_fields)},
+        )
+    if not supported_fields.intersection(body):
+        raise APIError("At least one availability field must be provided")
+
+    database = get_db()
+    current = _availability(database, availability_id)
+    day_of_week = (
+        _day_of_week(body["day_of_week"])
+        if "day_of_week" in body
+        else current["day_of_week"]
+    )
+    start_time = (
+        _time(body["start_time"], "start_time")
+        if "start_time" in body
+        else current["start_time"]
+    )
+    end_time = (
+        _time(body["end_time"], "end_time")
+        if "end_time" in body
+        else current["end_time"]
+    )
+    if start_time >= end_time:
+        raise APIError("'end_time' must be later than 'start_time'")
+
+    try:
+        database.execute(
+            """
+            UPDATE availability
+            SET day_of_week = ?, start_time = ?, end_time = ?
+            WHERE id = ?
+            """,
+            (day_of_week, start_time, end_time, availability_id),
+        )
+        database.commit()
+    except sqlite3.IntegrityError as error:
+        raise APIError("That availability record already exists", 409) from error
+    return jsonify(dict(_availability(database, availability_id)))
+
+
+@bp.delete("/availability/<int:availability_id>")
+def delete_availability(availability_id):
+    database = get_db()
+    _availability(database, availability_id)
+    database.execute("DELETE FROM availability WHERE id = ?", (availability_id,))
+    database.commit()
+    return "", 204
+
+
+@bp.get("/shifts")
+def list_shifts():
+    filters = []
+    parameters = []
+
+    date_from = request.args.get("date_from")
+    date_to = request.args.get("date_to")
+    if date_from is not None:
+        parsed_from = _date_field(date_from, "date_from")
+        filters.append("s.shift_date >= ?")
+        parameters.append(parsed_from.isoformat())
+    else:
+        parsed_from = None
+    if date_to is not None:
+        parsed_to = _date_field(date_to, "date_to")
+        filters.append("s.shift_date <= ?")
+        parameters.append(parsed_to.isoformat())
+    else:
+        parsed_to = None
+    if (
+        parsed_from is not None
+        and parsed_to is not None
+        and parsed_from > parsed_to
+    ):
+        raise APIError("'date_from' must be on or before 'date_to'")
+
+    required_role = request.args.get("required_role")
+    if required_role is not None:
+        required_role = required_role.strip()
+        if not required_role:
+            raise APIError("'required_role' must not be empty")
+        filters.append("LOWER(s.required_role) = LOWER(?)")
+        parameters.append(required_role)
+
+    status = request.args.get("status")
+    if status is not None:
+        status = status.lower()
+        if status not in {"draft", "approved", "rejected"}:
+            raise APIError("'status' must be draft, approved, or rejected")
+        filters.append("s.status = ?")
+        parameters.append(status)
+
+    employee_id = request.args.get("employee_id")
+    join = ""
+    if employee_id is not None:
+        try:
+            employee_id = int(employee_id)
+        except ValueError as error:
+            raise APIError("'employee_id' must be a positive integer") from error
+        if employee_id < 1:
+            raise APIError("'employee_id' must be a positive integer")
+        join = "JOIN shift_assignments AS filter_sa ON filter_sa.shift_id = s.id"
+        filters.append("filter_sa.employee_id = ?")
+        parameters.append(employee_id)
+
+    where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+    database = get_db()
+    rows = database.execute(
+        f"""
+        SELECT DISTINCT s.id
+        FROM shifts AS s
+        {join}
+        {where_clause}
+        ORDER BY s.shift_date, s.start_time, s.id
+        """,
+        parameters,
+    ).fetchall()
+    return jsonify({"shifts": [get_shift(database, row["id"]) for row in rows]})
 
 
 @bp.post("/shifts/recommendations")
@@ -276,4 +495,3 @@ def decide_shift(shift_id):
     )
     database.commit()
     return jsonify(get_shift(database, shift_id))
-

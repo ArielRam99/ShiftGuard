@@ -109,13 +109,22 @@ curl -X PATCH http://127.0.0.1:5000/api/shifts/1/decision \
 | `GET` | `/api/model/status` | Model strategy and training-record count |
 | `GET` | `/api/employees` | List employees |
 | `POST` | `/api/employees` | Create an employee |
+| `PATCH` | `/api/employees/{id}` | Update, deactivate, or reactivate an employee |
+| `GET` | `/api/employees/{id}/availability` | List weekly availability |
 | `POST` | `/api/employees/{id}/availability` | Add weekly availability |
+| `PATCH` | `/api/availability/{id}` | Update weekly availability |
+| `DELETE` | `/api/availability/{id}` | Delete weekly availability |
+| `GET` | `/api/shifts` | List and filter schedules |
 | `POST` | `/api/shifts/recommendations` | Generate and save a draft schedule |
 | `GET` | `/api/shifts/{id}` | Retrieve a draft or decided schedule |
 | `PATCH` | `/api/shifts/{id}/decision` | Manager approval or rejection |
 
 `day_of_week` uses `0` for Monday through `6` for Sunday. Overnight shifts are
 outside this first MVP and are rejected explicitly.
+
+Schedule-list filters are `date_from`, `date_to`, `required_role`, `status`, and
+`employee_id`. See `docs/openapi.yaml` for the authoritative request and
+response contract.
 
 ## Run tests
 
