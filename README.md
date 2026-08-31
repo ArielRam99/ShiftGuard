@@ -61,3 +61,31 @@ Open your web browser, and go to the following address to use the dashboard:
 ```bash
 http://127.0.0.1:5000
 ```
+
+---
+
+## How to Run Unit Tests Locally
+
+Follow these steps to run the test suite (`tests.py`) on your local machine:
+
+### Step 1: Install Requirements
+Make sure the application dependencies from the [How to Run Locally](#step-3-install-requirements-for-shiftguard) section are installed:
+```bash
+python -m pip install pandas
+python -m pip install numpy
+python -m pip install scikit-learn
+python -m pip install Flask
+```
+
+### Step 2: Navigate to the Project Directory
+Navigate to your local project directory, where `tests.py` is located.
+
+### Step 3: Run the Test Suite
+Run the tests using Python's built-in `unittest` module:
+```bash
+python -m unittest -v tests.py
+```
+The `-v` flag runs the tests in verbose mode, printing the name and result of each test case.
+
+### Step 4: Review the Results
+A successful run will show `OK` at the end of the output, confirming that the database initialization, dashboard route, and prediction endpoint are all working as expected.
