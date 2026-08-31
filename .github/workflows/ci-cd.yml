@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ ariel/add-csv-functionaility ]
+    branches: [ main ]
 
 jobs:
   build-and-test:
