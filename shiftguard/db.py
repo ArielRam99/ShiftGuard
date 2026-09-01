@@ -28,7 +28,34 @@ def close_db(_error=None):
 def init_db():
     database = get_db()
     database.executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
+    _migrate_existing_database(database)
     database.commit()
+
+
+def _migrate_existing_database(database):
+    """Apply additive SQLite migrations needed by existing local databases."""
+    shift_columns = {
+        row["name"]
+        for row in database.execute("PRAGMA table_info(shifts)").fetchall()
+    }
+    additions = {
+        "staffing_range_min": "INTEGER",
+        "staffing_range_max": "INTEGER",
+        "confidence_level": "REAL",
+        "model_mae": "REAL",
+    }
+    for column, definition in additions.items():
+        if column not in shift_columns:
+            database.execute(
+                f"ALTER TABLE shifts ADD COLUMN {column} {definition}"
+            )
+    database.execute(
+        """
+        UPDATE shifts
+        SET staffing_range_min = COALESCE(staffing_range_min, required_staff),
+            staffing_range_max = COALESCE(staffing_range_max, required_staff)
+        """
+    )
 
 
 def seed_demo_data():

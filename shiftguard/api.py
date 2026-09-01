@@ -1,9 +1,11 @@
 import sqlite3
 from datetime import date, datetime
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file
 
+from .ai import SUPPORTED_MODELS, StaffingPredictor
 from .db import get_db
+from .reports import MIME_TYPES, analytics_report, schedule_report
 from .scheduling import generate_shift_recommendation, get_shift
 
 
@@ -132,8 +134,29 @@ def model_status():
             "training_records": count,
             "strategy": "random_forest" if count >= 5 else "rules_fallback",
             "advisory_only": True,
+            "supported_strategies": ["auto", *SUPPORTED_MODELS],
         }
     )
+
+
+@bp.get("/model/comparison")
+def model_comparison():
+    database = get_db()
+    history = database.execute(
+        """
+        SELECT day_of_week, workload_score, shift_length_hours, required_staff
+        FROM historical_staffing
+        ORDER BY id
+        """
+    ).fetchall()
+    comparison = StaffingPredictor().compare(history)
+    comparison["metric_guidance"] = {
+        "selection": "Lowest MAE, then lowest RMSE",
+        "mae": "Mean absolute staffing error; lower is better",
+        "rmse": "Root mean squared staffing error; lower is better",
+        "r2": "Explained variance; higher is better",
+    }
+    return jsonify(comparison)
 
 
 @bp.get("/employees")
@@ -340,8 +363,7 @@ def delete_availability(availability_id):
     return "", 204
 
 
-@bp.get("/shifts")
-def list_shifts():
+def _filtered_shifts(database):
     filters = []
     parameters = []
 
@@ -396,7 +418,6 @@ def list_shifts():
         parameters.append(employee_id)
 
     where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
-    database = get_db()
     rows = database.execute(
         f"""
         SELECT DISTINCT s.id
@@ -407,7 +428,67 @@ def list_shifts():
         """,
         parameters,
     ).fetchall()
-    return jsonify({"shifts": [get_shift(database, row["id"]) for row in rows]})
+    return [get_shift(database, row["id"]) for row in rows]
+
+
+@bp.get("/shifts")
+def list_shifts():
+    return jsonify({"shifts": _filtered_shifts(get_db())})
+
+
+def _report_format(file_format):
+    if file_format not in MIME_TYPES:
+        raise APIError("Report format must be pdf or xlsx", 404)
+    return file_format
+
+
+@bp.get("/reports/schedules.<file_format>")
+def export_schedules(file_format):
+    file_format = _report_format(file_format)
+    report = schedule_report(_filtered_shifts(get_db()), file_format)
+    return send_file(
+        report,
+        mimetype=MIME_TYPES[file_format],
+        as_attachment=True,
+        download_name=f"shiftguard-schedules.{file_format}",
+    )
+
+
+@bp.get("/reports/analytics.<file_format>")
+def export_analytics(file_format):
+    file_format = _report_format(file_format)
+    database = get_db()
+    shifts = _filtered_shifts(database)
+    status_counts = {"draft": 0, "approved": 0, "rejected": 0}
+    assignments = []
+    for shift in shifts:
+        status_counts[shift["status"]] += 1
+        assignments.extend(shift["assignments"])
+    summary = {
+        "total_shifts": len(shifts),
+        "draft_shifts": status_counts["draft"],
+        "approved_shifts": status_counts["approved"],
+        "rejected_shifts": status_counts["rejected"],
+        "total_assignments": len(assignments),
+        "projected_overtime_hours": round(
+            sum(item["projected_overtime_hours"] for item in assignments), 2
+        ),
+    }
+    history = database.execute(
+        """
+        SELECT day_of_week, workload_score, shift_length_hours, required_staff
+        FROM historical_staffing
+        ORDER BY id
+        """
+    ).fetchall()
+    comparison = StaffingPredictor().compare(history)
+    report = analytics_report(summary, comparison, file_format)
+    return send_file(
+        report,
+        mimetype=MIME_TYPES[file_format],
+        as_attachment=True,
+        download_name=f"shiftguard-analytics.{file_format}",
+    )
 
 
 @bp.post("/shifts/recommendations")
@@ -438,6 +519,14 @@ def recommend_shift():
     if not isinstance(allow_overtime, bool):
         raise APIError("'allow_overtime' must be true or false")
 
+    model_strategy = body.get("model_strategy", "random_forest")
+    allowed_strategies = {"auto", *SUPPORTED_MODELS}
+    if not isinstance(model_strategy, str) or model_strategy not in allowed_strategies:
+        raise APIError(
+            "'model_strategy' must be auto, random_forest, "
+            "gradient_boosting, or linear_regression"
+        )
+
     recommendation = generate_shift_recommendation(
         get_db(),
         shift_date=shift_date,
@@ -448,6 +537,7 @@ def recommend_shift():
         workload_score=workload_score,
         required_staff_override=required_staff,
         allow_overtime=allow_overtime,
+        model_strategy=model_strategy,
     )
     return jsonify(recommendation), 201
 

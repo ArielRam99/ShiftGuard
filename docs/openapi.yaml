@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ShiftGuard AI API
-  version: 1.1.0
+  version: 1.2.0
   summary: Integration contract for the ShiftGuard AI scheduling MVP
   description: |
     The ShiftGuard AI API manages employees and availability, generates advisory
@@ -22,6 +22,8 @@ tags:
     description: Employee and availability management
   - name: Scheduling
     description: Advisory scheduling and manager decisions
+  - name: Reports
+    description: Downloadable schedule and model-performance reports
 paths:
   /api/health:
     get:
@@ -57,6 +59,27 @@ paths:
                 training_records: 8
                 strategy: random_forest
                 advisory_only: true
+                supported_strategies:
+                  - auto
+                  - random_forest
+                  - gradient_boosting
+                  - linear_regression
+  /api/model/comparison:
+    get:
+      tags: [System]
+      operationId: compareModels
+      summary: Compare supported staffing models
+      description: |
+        Evaluates Random Forest, Gradient Boosting, and Linear Regression with
+        reproducible shuffled K-fold out-of-fold predictions. The best model is
+        selected by lowest MAE and then lowest RMSE.
+      responses:
+        "200":
+          description: Model comparison or a rules-fallback result when history is insufficient.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelComparisonResponse"
   /api/employees:
     get:
       tags: [Employees]
@@ -329,6 +352,7 @@ paths:
                   end_time: "17:00"
                   required_role: Nurse
                   workload_score: 80
+                  model_strategy: auto
               managerOverride:
                 summary: Manager supplies the staffing level
                 value:
@@ -348,6 +372,68 @@ paths:
                 $ref: "#/components/schemas/RecommendationResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+  /api/reports/schedules.{file_format}:
+    parameters:
+      - $ref: "#/components/parameters/ReportFormat"
+    get:
+      tags: [Reports]
+      operationId: exportSchedules
+      summary: Export filtered schedules
+      description: |
+        Downloads schedules and assignments in PDF or formatted Excel. Accepts
+        the same optional `date_from`, `date_to`, `required_role`, `status`, and
+        `employee_id` query filters as `GET /api/shifts`.
+      responses:
+        "200":
+          description: Generated report file.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Unsupported report format.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/reports/analytics.{file_format}:
+    parameters:
+      - $ref: "#/components/parameters/ReportFormat"
+    get:
+      tags: [Reports]
+      operationId: exportAnalytics
+      summary: Export scheduling and model analytics
+      description: |
+        Downloads schedule-status totals, assignments, projected overtime, and
+        model-comparison metrics in PDF or formatted Excel. Schedule query
+        filters are supported.
+      responses:
+        "200":
+          description: Generated analytics report file.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Unsupported report format.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /api/shifts/{shift_id}:
     parameters:
       - $ref: "#/components/parameters/ShiftId"
@@ -429,6 +515,13 @@ components:
       schema:
         type: integer
         minimum: 1
+    ReportFormat:
+      name: file_format
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [pdf, xlsx]
   responses:
     BadRequest:
       description: Invalid JSON, a missing field, or a failed validation rule.
@@ -472,7 +565,7 @@ components:
           const: ok
     ModelStatusResponse:
       type: object
-      required: [training_records, strategy, advisory_only]
+      required: [training_records, strategy, advisory_only, supported_strategies]
       properties:
         training_records:
           type: integer
@@ -482,6 +575,54 @@ components:
         advisory_only:
           type: boolean
           const: true
+        supported_strategies:
+          type: array
+          items:
+            $ref: "#/components/schemas/ForecastStrategy"
+    ModelComparisonResponse:
+      type: object
+      required:
+        - training_records
+        - minimum_training_records
+        - best_model
+        - models
+        - metric_guidance
+      properties:
+        training_records:
+          type: integer
+          minimum: 0
+        minimum_training_records:
+          type: integer
+          minimum: 1
+        best_model:
+          $ref: "#/components/schemas/ModelSource"
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModelComparisonResult"
+        metric_guidance:
+          type: object
+          required: [selection, mae, rmse, r2]
+          properties:
+            selection:
+              type: string
+            mae:
+              type: string
+            rmse:
+              type: string
+            r2:
+              type: string
+    ModelComparisonResult:
+      allOf:
+        - $ref: "#/components/schemas/ModelMetrics"
+        - type: object
+          required: [strategy, confidence_error_margin]
+          properties:
+            strategy:
+              $ref: "#/components/schemas/ModelStrategy"
+            confidence_error_margin:
+              type: integer
+              minimum: 1
     EmployeeListResponse:
       type: object
       required: [employees]
@@ -645,6 +786,13 @@ components:
         allow_overtime:
           type: boolean
           default: false
+        model_strategy:
+          allOf:
+            - $ref: "#/components/schemas/ForecastStrategy"
+          default: random_forest
+          description: |
+            Selects a model. `auto` uses the lowest-MAE comparison result.
+            Ignored when `required_staff` supplies a manager override.
     DecideShiftRequest:
       type: object
       required: [decision, manager_name]
@@ -670,6 +818,8 @@ components:
         - workload_score
         - required_staff
         - model_source
+        - staffing_range
+        - model_mae
         - status
         - decided_by
         - manager_note
@@ -703,6 +853,12 @@ components:
           maximum: 50
         model_source:
           $ref: "#/components/schemas/ModelSource"
+        staffing_range:
+          $ref: "#/components/schemas/StaffingRange"
+        model_mae:
+          type: [number, "null"]
+          minimum: 0
+          description: Cross-validated MAE for the selected model, or null for an override/fallback.
         status:
           $ref: "#/components/schemas/ShiftStatus"
         decided_by:
@@ -744,6 +900,8 @@ components:
               type: integer
               minimum: 0
               description: Required positions for which no eligible employee was selected.
+            model_metrics:
+              $ref: "#/components/schemas/ModelMetrics"
     ShiftAssignment:
       type: object
       required:
@@ -797,9 +955,47 @@ components:
     PredictionStrategy:
       type: string
       enum: [rules_fallback, random_forest]
+    ForecastStrategy:
+      type: string
+      enum: [auto, random_forest, gradient_boosting, linear_regression]
+    ModelStrategy:
+      type: string
+      enum: [random_forest, gradient_boosting, linear_regression]
     ModelSource:
       type: string
-      enum: [rules_fallback, random_forest, manager_override]
+      enum:
+        - rules_fallback
+        - random_forest
+        - gradient_boosting
+        - linear_regression
+        - manager_override
+    ModelMetrics:
+      type: object
+      required: [mae, rmse, r2]
+      properties:
+        mae:
+          type: number
+          minimum: 0
+        rmse:
+          type: number
+          minimum: 0
+        r2:
+          type: number
+    StaffingRange:
+      type: object
+      required: [minimum, maximum, confidence_level]
+      properties:
+        minimum:
+          type: integer
+          minimum: 1
+        maximum:
+          type: integer
+          minimum: 1
+        confidence_level:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 1
+          description: Operational error-band level; null for a manager override.
     ShiftStatus:
       type: string
       enum: [draft, approved, rejected]

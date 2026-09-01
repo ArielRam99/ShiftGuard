@@ -282,3 +282,103 @@ def test_list_and_filter_schedules(client):
     invalid_status = client.get("/api/shifts?status=published")
     assert invalid_status.status_code == 400
 
+
+def test_model_comparison_selection_and_confidence_range(app, client):
+    with app.app_context():
+        seed_demo_data()
+
+    comparison_response = client.get("/api/model/comparison")
+    assert comparison_response.status_code == 200
+    comparison = comparison_response.get_json()
+    assert comparison["training_records"] == 35
+    assert comparison["best_model"] in {
+        "random_forest",
+        "gradient_boosting",
+        "linear_regression",
+    }
+    assert {result["strategy"] for result in comparison["models"]} == {
+        "random_forest",
+        "gradient_boosting",
+        "linear_regression",
+    }
+    assert all(result["mae"] >= 0 for result in comparison["models"])
+
+    for strategy in (
+        "random_forest",
+        "gradient_boosting",
+        "linear_regression",
+        "auto",
+    ):
+        response = client.post(
+            "/api/shifts/recommendations",
+            json={
+                "shift_date": "2026-09-01",
+                "start_time": "09:00",
+                "end_time": "17:00",
+                "required_role": "Nurse",
+                "workload_score": 80,
+                "model_strategy": strategy,
+            },
+        )
+        assert response.status_code == 201
+        result = response.get_json()
+        assert result["model_source"] in {
+            "random_forest",
+            "gradient_boosting",
+            "linear_regression",
+        }
+        assert result["staffing_range"]["minimum"] <= result["required_staff"]
+        assert result["staffing_range"]["maximum"] >= result["required_staff"]
+        assert result["staffing_range"]["confidence_level"] == 0.95
+        assert result["model_metrics"]["mae"] >= 0
+
+    invalid = client.post(
+        "/api/shifts/recommendations",
+        json={
+            "shift_date": "2026-09-01",
+            "start_time": "09:00",
+            "end_time": "17:00",
+            "required_role": "Nurse",
+            "workload_score": 80,
+            "model_strategy": "neural_network",
+        },
+    )
+    assert invalid.status_code == 400
+
+
+def test_schedule_and_analytics_reports(app, client):
+    with app.app_context():
+        seed_demo_data()
+
+    recommendation = client.post(
+        "/api/shifts/recommendations",
+        json={
+            "shift_date": "2026-09-01",
+            "start_time": "09:00",
+            "end_time": "17:00",
+            "required_role": "Nurse",
+            "workload_score": 80,
+        },
+    )
+    assert recommendation.status_code == 201
+
+    schedule_pdf = client.get("/api/reports/schedules.pdf")
+    assert schedule_pdf.status_code == 200
+    assert schedule_pdf.data.startswith(b"%PDF")
+    assert "shiftguard-schedules.pdf" in schedule_pdf.headers["Content-Disposition"]
+
+    schedule_xlsx = client.get("/api/reports/schedules.xlsx")
+    assert schedule_xlsx.status_code == 200
+    assert schedule_xlsx.data.startswith(b"PK")
+    assert "shiftguard-schedules.xlsx" in schedule_xlsx.headers["Content-Disposition"]
+
+    analytics_pdf = client.get("/api/reports/analytics.pdf")
+    assert analytics_pdf.status_code == 200
+    assert analytics_pdf.data.startswith(b"%PDF")
+
+    analytics_xlsx = client.get("/api/reports/analytics.xlsx")
+    assert analytics_xlsx.status_code == 200
+    assert analytics_xlsx.data.startswith(b"PK")
+
+    invalid_format = client.get("/api/reports/schedules.csv")
+    assert invalid_format.status_code == 404

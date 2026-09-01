@@ -39,6 +39,7 @@ def generate_shift_recommendation(
     workload_score,
     required_staff_override=None,
     allow_overtime=False,
+    model_strategy="random_forest",
 ):
     history = database.execute(
         """
@@ -53,21 +54,31 @@ def generate_shift_recommendation(
             shift_date.weekday(),
             workload_score,
             duration_hours,
+            strategy=model_strategy,
         )
         required_staff = prediction.required_staff
         model_source = prediction.source
         training_records = prediction.training_records
+        staffing_range_min = prediction.range_min
+        staffing_range_max = prediction.range_max
+        confidence_level = prediction.confidence_level
+        model_metrics = prediction.metrics
     else:
         required_staff = required_staff_override
         model_source = "manager_override"
         training_records = len(history)
+        staffing_range_min = required_staff
+        staffing_range_max = required_staff
+        confidence_level = None
+        model_metrics = None
 
     cursor = database.execute(
         """
         INSERT INTO shifts (
             shift_date, start_time, end_time, duration_hours,
-            required_role, workload_score, required_staff, model_source
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            required_role, workload_score, required_staff, model_source,
+            staffing_range_min, staffing_range_max, confidence_level, model_mae
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             shift_date.isoformat(),
@@ -78,6 +89,10 @@ def generate_shift_recommendation(
             workload_score,
             required_staff,
             model_source,
+            staffing_range_min,
+            staffing_range_max,
+            confidence_level,
+            model_metrics["mae"] if model_metrics else None,
         ),
     )
     shift_id = cursor.lastrowid
@@ -160,6 +175,8 @@ def generate_shift_recommendation(
     result["training_records"] = training_records
     result["coverage_gap"] = max(0, required_staff - len(selected))
     result["requires_manager_approval"] = True
+    if model_metrics:
+        result["model_metrics"] = model_metrics
     return result
 
 
@@ -200,6 +217,12 @@ def get_shift(database, shift_id):
         "workload_score": shift["workload_score"],
         "required_staff": shift["required_staff"],
         "model_source": shift["model_source"],
+        "staffing_range": {
+            "minimum": shift["staffing_range_min"],
+            "maximum": shift["staffing_range_max"],
+            "confidence_level": shift["confidence_level"],
+        },
+        "model_mae": shift["model_mae"],
         "status": shift["status"],
         "decided_by": shift["decided_by"],
         "manager_note": shift["manager_note"],

@@ -21,8 +21,8 @@ start with `/api`.
 4. List availability with `GET /api/employees/{employee_id}/availability`,
    and maintain it with `PATCH` or `DELETE /api/availability/{availability_id}`.
 5. Request a draft with `POST /api/shifts/recommendations`.
-6. Display the returned assignments, reasons, overtime values, and
-   `coverage_gap` for manager review.
+6. Display the selected `model_source`, recommended staff, `staffing_range`,
+   assignments, reasons, overtime values, and `coverage_gap` for manager review.
 7. Record the manager's final action with
    `PATCH /api/shifts/{shift_id}/decision`.
 8. Retrieve a saved schedule with `GET /api/shifts/{shift_id}`, or populate a
@@ -35,6 +35,26 @@ present a `draft` schedule as approved, and it should show a clear warning when
 `GET /api/shifts` accepts inclusive `date_from` and `date_to` values plus
 case-insensitive `required_role`, `status`, and `employee_id` filters. Filters
 are combined with AND.
+
+## Forecasting and reports
+
+Use `GET /api/model/comparison` to show cross-validated MAE, RMSE, and R2 for
+Random Forest, Gradient Boosting, and Linear Regression. Recommendation requests
+may set `model_strategy` to one of those names or to `auto`; omitting it retains
+the compatible Random Forest default.
+
+The staffing range is a 95% operational error band based on historical
+out-of-fold prediction errors. It helps managers plan for demand variability but
+does not replace manager judgment.
+
+Schedules and analytics can be downloaded from:
+
+- `GET /api/reports/schedules.pdf`
+- `GET /api/reports/schedules.xlsx`
+- `GET /api/reports/analytics.pdf`
+- `GET /api/reports/analytics.xlsx`
+
+Report endpoints accept the schedule filters used by `GET /api/shifts`.
 
 ## Contract compatibility policy
 

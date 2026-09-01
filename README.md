@@ -9,7 +9,10 @@ every generated schedule.
 
 - Flask JSON API for employees, availability, and shift recommendations
 - SQLite persistence with parameterized queries and foreign-key enforcement
-- Scikit-learn random-forest demand prediction when enough history exists
+- Scikit-learn Random Forest, Gradient Boosting, and Linear Regression models
+- Reproducible model comparison with automatic lowest-error selection
+- Persisted 95% operational staffing ranges for demand-spike planning
+- PDF and formatted Excel schedule and analytics exports
 - Documented rules-based fallback for a new installation
 - Employee ranking based on availability and projected weekly hours
 - Overtime avoidance by default, with an explicit opt-in override
@@ -23,6 +26,7 @@ every generated schedule.
 | `shiftguard/api.py` | Validates requests and exposes the integration API |
 | `shiftguard/db.py` | Manages SQLite, schema initialization, and demo data |
 | `shiftguard/ai.py` | Predicts required staffing from historical demand |
+| `shiftguard/reports.py` | Generates downloadable PDF and Excel reports |
 | `shiftguard/scheduling.py` | Filters, ranks, and stores employee recommendations |
 | `shiftguard/schema.sql` | Defines employees, availability, history, shifts, and assignments |
 
@@ -85,7 +89,8 @@ curl -X POST http://127.0.0.1:5000/api/shifts/recommendations \
     "start_time": "09:00",
     "end_time": "17:00",
     "required_role": "Nurse",
-    "workload_score": 80
+    "workload_score": 80,
+    "model_strategy": "auto"
   }'
 ```
 
@@ -107,6 +112,7 @@ curl -X PATCH http://127.0.0.1:5000/api/shifts/1/decision \
 | --- | --- | --- |
 | `GET` | `/api/health` | Service and database health check |
 | `GET` | `/api/model/status` | Model strategy and training-record count |
+| `GET` | `/api/model/comparison` | Compare model accuracy and select the best model |
 | `GET` | `/api/employees` | List employees |
 | `POST` | `/api/employees` | Create an employee |
 | `PATCH` | `/api/employees/{id}` | Update, deactivate, or reactivate an employee |
@@ -118,6 +124,10 @@ curl -X PATCH http://127.0.0.1:5000/api/shifts/1/decision \
 | `POST` | `/api/shifts/recommendations` | Generate and save a draft schedule |
 | `GET` | `/api/shifts/{id}` | Retrieve a draft or decided schedule |
 | `PATCH` | `/api/shifts/{id}/decision` | Manager approval or rejection |
+| `GET` | `/api/reports/schedules.pdf` | Download filtered schedules as PDF |
+| `GET` | `/api/reports/schedules.xlsx` | Download filtered schedules as Excel |
+| `GET` | `/api/reports/analytics.pdf` | Download analytics as PDF |
+| `GET` | `/api/reports/analytics.xlsx` | Download analytics as Excel |
 
 `day_of_week` uses `0` for Monday through `6` for Sunday. Overnight shifts are
 outside this first MVP and are rejected explicitly.
@@ -125,6 +135,11 @@ outside this first MVP and are rejected explicitly.
 Schedule-list filters are `date_from`, `date_to`, `required_role`, `status`, and
 `employee_id`. See `docs/openapi.yaml` for the authoritative request and
 response contract.
+
+`model_strategy` accepts `random_forest`, `gradient_boosting`,
+`linear_regression`, or `auto`. Confidence ranges are operational uncertainty
+estimates derived from cross-validated historical errors; they are not
+statistical guarantees.
 
 ## Run tests
 
@@ -144,4 +159,3 @@ GitHub Actions also runs the same tests for each pull request and each push to
   characteristics.
 - A production version still needs authentication, authorization, encrypted
   deployment, formal database migrations, monitoring, and bias evaluation.
-
