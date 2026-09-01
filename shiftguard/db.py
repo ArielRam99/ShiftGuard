@@ -34,44 +34,88 @@ def init_db():
 
 def _migrate_existing_database(database):
     """Apply additive SQLite migrations needed by existing local databases."""
+    def add_columns(table, additions):
+        columns = {
+            row["name"]
+            for row in database.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if not columns:
+            return
+        for column, definition in additions.items():
+            if column not in columns:
+                database.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+                )
+
+    add_columns(
+        "employees",
+        {
+            "department": "TEXT NOT NULL DEFAULT 'General' COLLATE NOCASE",
+            "max_overtime_hours": (
+                "REAL NOT NULL DEFAULT 8 "
+                "CHECK (max_overtime_hours >= 0 AND max_overtime_hours <= 128)"
+            ),
+            "minimum_rest_hours": (
+                "REAL NOT NULL DEFAULT 11 "
+                "CHECK (minimum_rest_hours >= 0 AND minimum_rest_hours <= 48)"
+            ),
+            "max_consecutive_days": (
+                "INTEGER NOT NULL DEFAULT 6 "
+                "CHECK (max_consecutive_days BETWEEN 1 AND 31)"
+            ),
+        },
+    )
+    add_columns(
+        "availability",
+        {
+            "preference": (
+                "TEXT NOT NULL DEFAULT 'available' "
+                "CHECK (preference IN ('available', 'preferred'))"
+            )
+        },
+    )
+    add_columns(
+        "shifts",
+        {
+            "staffing_range_min": "INTEGER",
+            "staffing_range_max": "INTEGER",
+            "confidence_level": "REAL",
+            "model_mae": "REAL",
+            "required_department": "TEXT COLLATE NOCASE",
+            "constraint_summary": "TEXT NOT NULL DEFAULT '{}'",
+        },
+    )
     shift_columns = {
         row["name"]
         for row in database.execute("PRAGMA table_info(shifts)").fetchall()
     }
-    additions = {
-        "staffing_range_min": "INTEGER",
-        "staffing_range_max": "INTEGER",
-        "confidence_level": "REAL",
-        "model_mae": "REAL",
-    }
-    for column, definition in additions.items():
-        if column not in shift_columns:
-            database.execute(
-                f"ALTER TABLE shifts ADD COLUMN {column} {definition}"
-            )
-    database.execute(
-        """
-        UPDATE shifts
-        SET staffing_range_min = COALESCE(staffing_range_min, required_staff),
-            staffing_range_max = COALESCE(staffing_range_max, required_staff)
-        """
-    )
+    if {"required_staff", "staffing_range_min", "staffing_range_max"}.issubset(
+        shift_columns
+    ):
+        database.execute(
+            """
+            UPDATE shifts
+            SET staffing_range_min = COALESCE(staffing_range_min, required_staff),
+                staffing_range_max = COALESCE(staffing_range_max, required_staff),
+                constraint_summary = COALESCE(constraint_summary, '{}')
+            """
+        )
 
 
 def seed_demo_data():
     """Insert deterministic, non-sensitive demo data without duplicating it."""
     database = get_db()
     employees = [
-        ("Jordan Lee", "Nurse", 40, 32),
-        ("Casey Smith", "Nurse", 36, 30),
-        ("Taylor Kim", "Nurse", 32, 34),
-        ("Morgan Diaz", "Assistant", 40, 22),
+        ("Jordan Lee", "Nurse", 40, 32, "Clinical"),
+        ("Casey Smith", "Nurse", 36, 30, "Clinical"),
+        ("Taylor Kim", "Nurse", 32, 34, "Clinical"),
+        ("Morgan Diaz", "Assistant", 40, 22, "Clinical"),
     ]
     database.executemany(
         """
         INSERT OR IGNORE INTO employees
-            (name, role, max_weekly_hours, hourly_rate)
-        VALUES (?, ?, ?, ?)
+            (name, role, max_weekly_hours, hourly_rate, department)
+        VALUES (?, ?, ?, ?, ?)
         """,
         employees,
     )
@@ -91,6 +135,27 @@ def seed_demo_data():
         VALUES (?, ?, ?, ?)
         """,
         availability_rows,
+    )
+
+    database.executemany(
+        "INSERT OR IGNORE INTO skills (name) VALUES (?)",
+        [("Patient Care",), ("Medication Administration",), ("Triage",)],
+    )
+    nurse_ids = [
+        row["id"]
+        for row in database.execute(
+            "SELECT id FROM employees WHERE LOWER(role) = 'nurse'"
+        ).fetchall()
+    ]
+    patient_care = database.execute(
+        "SELECT id FROM skills WHERE LOWER(name) = 'patient care'"
+    ).fetchone()["id"]
+    database.executemany(
+        """
+        INSERT OR IGNORE INTO employee_skills (employee_id, skill_id, proficiency)
+        VALUES (?, ?, 3)
+        """,
+        [(employee_id, patient_care) for employee_id in nurse_ids],
     )
 
     history_rows = []
@@ -133,4 +198,3 @@ def init_app(app):
     app.teardown_appcontext(close_db)
     app.cli.add_command(init_db_command)
     app.cli.add_command(seed_demo_command)
-
