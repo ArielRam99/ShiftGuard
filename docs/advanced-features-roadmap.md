@@ -15,12 +15,12 @@ documentation together. Existing API behavior and interface work remain intact.
 
 ## Phase B — Employee constraints and skills
 
-- [ ] Preferred availability and employee time-off requests.
-- [ ] Manager approval or rejection of time off.
-- [ ] Employee skills and department requirements.
-- [ ] Skill-aware assignment matching.
-- [ ] Minimum-rest and consecutive-shift safeguards.
-- [ ] Configurable weekly overtime ceilings and fairness warnings.
+- [x] Preferred availability and employee time-off requests.
+- [x] Manager approval or rejection of time off.
+- [x] Employee skills and department requirements.
+- [x] Skill-aware assignment matching.
+- [x] Minimum-rest and consecutive-shift safeguards.
+- [x] Configurable weekly overtime ceilings and fairness warnings.
 
 ## Phase C — Authentication, RBAC, and production database
 

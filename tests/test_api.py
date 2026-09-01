@@ -1,14 +1,41 @@
+from io import BytesIO
+
+from openpyxl import load_workbook
+
 from shiftguard.db import seed_demo_data
 
 
-def _create_employee(client, name):
+def _create_employee(client, name, **overrides):
+    payload = {
+        "name": name,
+        "role": "Nurse",
+        "max_weekly_hours": 40,
+        "hourly_rate": 30,
+    }
+    payload.update(overrides)
     response = client.post(
         "/api/employees",
+        json=payload,
+    )
+    assert response.status_code == 201
+    return response.get_json()["id"]
+
+
+def _add_availability(
+    client,
+    employee_id,
+    day_of_week=1,
+    start_time="08:00",
+    end_time="18:00",
+    preference="available",
+):
+    response = client.post(
+        f"/api/employees/{employee_id}/availability",
         json={
-            "name": name,
-            "role": "Nurse",
-            "max_weekly_hours": 40,
-            "hourly_rate": 30,
+            "day_of_week": day_of_week,
+            "start_time": start_time,
+            "end_time": end_time,
+            "preference": preference,
         },
     )
     assert response.status_code == 201
@@ -16,12 +43,40 @@ def _create_employee(client, name):
 
 
 def _add_tuesday_availability(client, employee_id):
+    return _add_availability(client, employee_id)
+
+
+def _assign_skill(client, employee_id, skill_name, proficiency=3):
     response = client.post(
-        f"/api/employees/{employee_id}/availability",
-        json={"day_of_week": 1, "start_time": "08:00", "end_time": "18:00"},
+        f"/api/employees/{employee_id}/skills",
+        json={"skill_name": skill_name, "proficiency": proficiency},
     )
     assert response.status_code == 201
-    return response.get_json()["id"]
+    return response.get_json()
+
+
+def _recommend(client, shift_date, **overrides):
+    payload = {
+        "shift_date": shift_date,
+        "start_time": "09:00",
+        "end_time": "17:00",
+        "required_role": "Nurse",
+        "workload_score": 50,
+        "required_staff": 1,
+    }
+    payload.update(overrides)
+    response = client.post("/api/shifts/recommendations", json=payload)
+    assert response.status_code == 201
+    return response.get_json()
+
+
+def _approve(client, shift_id):
+    response = client.patch(
+        f"/api/shifts/{shift_id}/decision",
+        json={"decision": "approved", "manager_name": "Phase B Manager"},
+    )
+    assert response.status_code == 200
+    return response.get_json()
 
 
 def test_health_endpoint(client):
@@ -148,11 +203,16 @@ def test_list_update_and_delete_employee_availability(client):
 
     updated = client.patch(
         f"/api/availability/{first_id}",
-        json={"start_time": "07:30", "end_time": "17:30"},
+        json={
+            "start_time": "07:30",
+            "end_time": "17:30",
+            "preference": "preferred",
+        },
     )
     assert updated.status_code == 200
     assert updated.get_json()["start_time"] == "07:30"
     assert updated.get_json()["day_of_week"] == 1
+    assert updated.get_json()["preference"] == "preferred"
 
     deleted = client.delete(f"/api/availability/{first_id}")
     assert deleted.status_code == 204
@@ -210,6 +270,223 @@ def test_update_and_deactivate_employee(client):
         f"/api/employees/{employee_id}", json={"active": "no"}
     )
     assert invalid.status_code == 400
+
+
+def test_employee_constraints_and_preferred_skill_routing(client):
+    preferred_id = _create_employee(
+        client,
+        "Preferred Specialist",
+        department="Emergency",
+        max_overtime_hours=4,
+        minimum_rest_hours=10,
+        max_consecutive_days=5,
+    )
+    missing_skill_id = _create_employee(
+        client, "Missing Skill", department="Emergency"
+    )
+    other_department_id = _create_employee(
+        client, "Other Department", department="Surgery"
+    )
+    _add_availability(client, preferred_id, preference="preferred")
+    _add_availability(client, missing_skill_id)
+    _add_availability(client, other_department_id)
+    skill = _assign_skill(client, preferred_id, "Triage", proficiency=5)
+    _assign_skill(client, other_department_id, "Triage")
+
+    employee = client.get("/api/employees").get_json()["employees"][0]
+    employee_by_id = {
+        item["id"]: item
+        for item in client.get("/api/employees").get_json()["employees"]
+    }
+    assert employee  # confirms the existing list envelope is unchanged
+    assert employee_by_id[preferred_id]["department"] == "Emergency"
+    assert employee_by_id[preferred_id]["max_overtime_hours"] == 4
+    assert employee_by_id[preferred_id]["minimum_rest_hours"] == 10
+    assert employee_by_id[preferred_id]["max_consecutive_days"] == 5
+
+    assigned = client.get(f"/api/employees/{preferred_id}/skills")
+    assert assigned.status_code == 200
+    assert assigned.get_json()["skills"][0]["name"] == "Triage"
+    catalog = client.get("/api/skills")
+    assert [item["name"] for item in catalog.get_json()["skills"]] == ["Triage"]
+
+    result = _recommend(
+        client,
+        "2026-09-01",
+        required_staff=2,
+        required_department="Emergency",
+        required_skills=["Triage"],
+    )
+    assert result["required_department"] == "Emergency"
+    assert result["required_skills"] == ["Triage"]
+    assert [item["employee_id"] for item in result["assignments"]] == [preferred_id]
+    assert "Preferred for the full shift" in result["assignments"][0]["reason"]
+    assert result["coverage_gap"] == 1
+    excluded = result["constraint_summary"]["excluded"]
+    assert excluded["missing_skills"] == 1
+    assert excluded["department_mismatch"] == 1
+    assert "hourly rate is not used" in result["constraint_summary"]["fairness_policy"]
+    fetched = client.get(f"/api/shifts/{result['id']}").get_json()
+    assert fetched["constraint_summary"] == result["constraint_summary"]
+    assert fetched["constraint_warnings"] == result["constraint_warnings"]
+    department_filter = client.get(
+        "/api/shifts?required_department=emergency"
+    ).get_json()["shifts"]
+    assert [shift["id"] for shift in department_filter] == [result["id"]]
+
+    removed = client.delete(
+        f"/api/employees/{preferred_id}/skills/{skill['id']}"
+    )
+    assert removed.status_code == 204
+    assert client.get(
+        f"/api/employees/{preferred_id}/skills"
+    ).get_json()["skills"] == []
+
+
+def test_time_off_workflow_blocks_pending_and_approved_requests(client):
+    employee_id = _create_employee(client, "Time Off Employee")
+    _add_tuesday_availability(client, employee_id)
+    created = client.post(
+        f"/api/employees/{employee_id}/time-off",
+        json={
+            "start_date": "2026-09-01",
+            "end_date": "2026-09-02",
+            "reason": "Family commitment",
+        },
+    )
+    assert created.status_code == 201
+    request_item = created.get_json()
+    assert request_item["status"] == "pending"
+
+    employee_list = client.get(
+        f"/api/employees/{employee_id}/time-off?status=pending"
+    )
+    assert employee_list.status_code == 200
+    assert len(employee_list.get_json()["time_off_requests"]) == 1
+    manager_list = client.get("/api/time-off?status=pending")
+    assert manager_list.get_json()["time_off_requests"][0]["employee_name"] == (
+        "Time Off Employee"
+    )
+
+    pending_result = _recommend(client, "2026-09-01")
+    assert pending_result["assignments"] == []
+    assert pending_result["constraint_summary"]["excluded"]["pending_time_off"] == 1
+
+    approved = client.patch(
+        f"/api/time-off/{request_item['id']}/decision",
+        json={
+            "decision": "approved",
+            "manager_name": "Phase B Manager",
+            "manager_note": "Coverage confirmed",
+        },
+    )
+    assert approved.status_code == 200
+    assert approved.get_json()["status"] == "approved"
+    assert approved.get_json()["decided_by"] == "Phase B Manager"
+
+    approved_result = _recommend(client, "2026-09-01")
+    assert approved_result["assignments"] == []
+    assert (
+        approved_result["constraint_summary"]["excluded"]["approved_time_off"] == 1
+    )
+    repeated = client.patch(
+        f"/api/time-off/{request_item['id']}/decision",
+        json={"decision": "rejected", "manager_name": "Phase B Manager"},
+    )
+    assert repeated.status_code == 409
+
+    available_id = _create_employee(client, "Rejected Time Off")
+    _add_tuesday_availability(client, available_id)
+    second_request = client.post(
+        f"/api/employees/{available_id}/time-off",
+        json={"start_date": "2026-09-01", "end_date": "2026-09-01"},
+    ).get_json()
+    rejected = client.patch(
+        f"/api/time-off/{second_request['id']}/decision",
+        json={"decision": "rejected", "manager_name": "Phase B Manager"},
+    )
+    assert rejected.status_code == 200
+    after_rejection = _recommend(client, "2026-09-01")
+    assert [item["employee_id"] for item in after_rejection["assignments"]] == [
+        available_id
+    ]
+
+
+def test_minimum_rest_and_consecutive_day_limits(client):
+    rest_id = _create_employee(
+        client,
+        "Rest Guard",
+        department="Clinical",
+        minimum_rest_hours=11,
+        max_consecutive_days=6,
+    )
+    _add_availability(client, rest_id, day_of_week=0, start_time="06:00", end_time="23:00")
+    _add_availability(client, rest_id, day_of_week=1, start_time="05:00", end_time="18:00")
+    monday = _recommend(
+        client,
+        "2026-08-31",
+        start_time="14:00",
+        end_time="22:00",
+    )
+    _approve(client, monday["id"])
+    too_soon = _recommend(
+        client,
+        "2026-09-01",
+        start_time="06:00",
+        end_time="14:00",
+    )
+    assert too_soon["assignments"] == []
+    assert too_soon["constraint_summary"]["excluded"]["insufficient_rest"] == 1
+
+    consecutive_id = _create_employee(
+        client,
+        "Consecutive Guard",
+        minimum_rest_hours=8,
+        max_consecutive_days=2,
+    )
+    for day in (6, 0, 1):
+        _add_availability(client, consecutive_id, day_of_week=day)
+    sunday = _recommend(client, "2026-08-30")
+    _approve(client, sunday["id"])
+    monday = _recommend(client, "2026-08-31")
+    _approve(client, monday["id"])
+    tuesday = _recommend(client, "2026-09-01")
+    assignment_ids = [item["employee_id"] for item in tuesday["assignments"]]
+    assert consecutive_id not in assignment_ids
+    assert tuesday["constraint_summary"]["excluded"]["consecutive_days"] >= 1
+
+
+def test_overtime_ceiling_and_fairness_ranking(client):
+    overtime_id = _create_employee(
+        client,
+        "Overtime Guard",
+        max_weekly_hours=8,
+        max_overtime_hours=2,
+        minimum_rest_hours=8,
+    )
+    _add_availability(client, overtime_id, day_of_week=0)
+    _add_availability(client, overtime_id, day_of_week=1)
+    monday = _recommend(client, "2026-08-31")
+    _approve(client, monday["id"])
+    overtime = _recommend(client, "2026-09-01", allow_overtime=True)
+    assert overtime_id not in [
+        item["employee_id"] for item in overtime["assignments"]
+    ]
+    assert overtime["constraint_summary"]["excluded"]["overtime_limit"] == 1
+
+    experienced_id = _create_employee(
+        client, "Recently Scheduled", minimum_rest_hours=8
+    )
+    fresh_id = _create_employee(client, "Fresh Candidate", minimum_rest_hours=8)
+    for employee_id in (experienced_id, fresh_id):
+        _add_availability(client, employee_id, day_of_week=0)
+        _add_availability(client, employee_id, day_of_week=1)
+    prior = _recommend(client, "2026-08-31", required_staff=1)
+    assert prior["assignments"][0]["employee_id"] == experienced_id
+    _approve(client, prior["id"])
+    fair = _recommend(client, "2026-09-01", required_staff=1)
+    assert fair["assignments"][0]["employee_id"] == fresh_id
+    assert "0 approved shift(s)" in fair["assignments"][0]["reason"]
 
 
 def test_list_and_filter_schedules(client):
@@ -371,6 +648,12 @@ def test_schedule_and_analytics_reports(app, client):
     assert schedule_xlsx.status_code == 200
     assert schedule_xlsx.data.startswith(b"PK")
     assert "shiftguard-schedules.xlsx" in schedule_xlsx.headers["Content-Disposition"]
+    workbook = load_workbook(BytesIO(schedule_xlsx.data), read_only=True)
+    schedule_headers = [cell.value for cell in next(workbook["Schedules"].rows)]
+    assignment_headers = [cell.value for cell in next(workbook["Assignments"].rows)]
+    assert "Department" in schedule_headers
+    assert "Required Skills" in schedule_headers
+    assert "Department" in assignment_headers
 
     analytics_pdf = client.get("/api/reports/analytics.pdf")
     assert analytics_pdf.status_code == 200

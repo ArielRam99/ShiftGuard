@@ -59,6 +59,26 @@ def _number(body, field, *, minimum=None, maximum=None, default=None):
     return value
 
 
+def _integer(body, field, *, minimum=None, maximum=None, default=None):
+    value = body.get(field, default)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise APIError(f"'{field}' must be a whole number")
+    if minimum is not None and value < minimum:
+        raise APIError(f"'{field}' must be at least {minimum}")
+    if maximum is not None and value > maximum:
+        raise APIError(f"'{field}' must be at most {maximum}")
+    return value
+
+
+def _optional_text(body, field):
+    value = body.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise APIError(f"'{field}' must be non-empty text")
+    return value.strip()
+
+
 def _time(value, field):
     if not isinstance(value, str):
         raise APIError(f"'{field}' must use HH:MM format")
@@ -85,7 +105,9 @@ def _date_field(value, field):
 def _employee(database, employee_id):
     employee = database.execute(
         """
-        SELECT id, name, role, max_weekly_hours, hourly_rate, active, created_at
+        SELECT id, name, role, max_weekly_hours, hourly_rate, department,
+               max_overtime_hours, minimum_rest_hours, max_consecutive_days,
+               active, created_at
         FROM employees WHERE id = ?
         """,
         (employee_id,),
@@ -98,7 +120,7 @@ def _employee(database, employee_id):
 def _availability(database, availability_id):
     availability = database.execute(
         """
-        SELECT id, employee_id, day_of_week, start_time, end_time
+        SELECT id, employee_id, day_of_week, start_time, end_time, preference
         FROM availability WHERE id = ?
         """,
         (availability_id,),
@@ -108,11 +130,40 @@ def _availability(database, availability_id):
     return availability
 
 
+def _skill(database, skill_id):
+    skill = database.execute(
+        "SELECT id, name, created_at FROM skills WHERE id = ?", (skill_id,)
+    ).fetchone()
+    if skill is None:
+        raise APIError("Skill not found", 404)
+    return skill
+
+
+def _time_off_request(database, request_id):
+    item = database.execute(
+        """
+        SELECT id, employee_id, start_date, end_date, reason, status,
+               requested_at, decided_by, manager_note, decided_at
+        FROM time_off_requests WHERE id = ?
+        """,
+        (request_id,),
+    ).fetchone()
+    if item is None:
+        raise APIError("Time-off request not found", 404)
+    return item
+
+
 def _day_of_week(value):
     if isinstance(value, bool) or not isinstance(value, int):
         raise APIError("'day_of_week' must be an integer from 0 (Monday) to 6")
     if value < 0 or value > 6:
         raise APIError("'day_of_week' must be between 0 (Monday) and 6 (Sunday)")
+    return value
+
+
+def _preference(value):
+    if value not in {"available", "preferred"}:
+        raise APIError("'preference' must be available or preferred")
     return value
 
 
@@ -164,7 +215,9 @@ def list_employees():
     database = get_db()
     employees = database.execute(
         """
-        SELECT id, name, role, max_weekly_hours, hourly_rate, active, created_at
+        SELECT id, name, role, max_weekly_hours, hourly_rate, department,
+               max_overtime_hours, minimum_rest_hours, max_consecutive_days,
+               active, created_at
         FROM employees
         ORDER BY name
         """
@@ -181,35 +234,57 @@ def create_employee():
         body, "max_weekly_hours", minimum=1, maximum=168, default=40
     )
     hourly_rate = _number(body, "hourly_rate", minimum=0, default=0)
+    department = _optional_text(body, "department") or "General"
+    max_overtime_hours = _number(
+        body, "max_overtime_hours", minimum=0, maximum=128, default=8
+    )
+    minimum_rest_hours = _number(
+        body, "minimum_rest_hours", minimum=0, maximum=48, default=11
+    )
+    max_consecutive_days = _integer(
+        body, "max_consecutive_days", minimum=1, maximum=31, default=6
+    )
 
     database = get_db()
     try:
         cursor = database.execute(
             """
-            INSERT INTO employees (name, role, max_weekly_hours, hourly_rate)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO employees (
+                name, role, max_weekly_hours, hourly_rate, department,
+                max_overtime_hours, minimum_rest_hours, max_consecutive_days
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (name, role, max_hours, hourly_rate),
+            (
+                name,
+                role,
+                max_hours,
+                hourly_rate,
+                department,
+                max_overtime_hours,
+                minimum_rest_hours,
+                max_consecutive_days,
+            ),
         )
         database.commit()
     except sqlite3.IntegrityError as error:
         raise APIError("An employee with that name already exists", 409) from error
 
-    employee = database.execute(
-        """
-        SELECT id, name, role, max_weekly_hours, hourly_rate, active, created_at
-        FROM employees WHERE id = ?
-        """,
-        (cursor.lastrowid,),
-    ).fetchone()
-    return jsonify(dict(employee)), 201
+    return jsonify(dict(_employee(database, cursor.lastrowid))), 201
 
 
 @bp.patch("/employees/<int:employee_id>")
 def update_employee(employee_id):
     body = _json_body()
     supported_fields = {
-        "name", "role", "max_weekly_hours", "hourly_rate", "active"
+        "name",
+        "role",
+        "max_weekly_hours",
+        "hourly_rate",
+        "department",
+        "max_overtime_hours",
+        "minimum_rest_hours",
+        "max_consecutive_days",
+        "active",
     }
     unknown_fields = set(body) - supported_fields
     if unknown_fields:
@@ -233,6 +308,20 @@ def update_employee(employee_id):
         )
     if "hourly_rate" in body:
         updates["hourly_rate"] = _number(body, "hourly_rate", minimum=0)
+    if "department" in body:
+        updates["department"] = _required_text(body, "department")
+    if "max_overtime_hours" in body:
+        updates["max_overtime_hours"] = _number(
+            body, "max_overtime_hours", minimum=0, maximum=128
+        )
+    if "minimum_rest_hours" in body:
+        updates["minimum_rest_hours"] = _number(
+            body, "minimum_rest_hours", minimum=0, maximum=48
+        )
+    if "max_consecutive_days" in body:
+        updates["max_consecutive_days"] = _integer(
+            body, "max_consecutive_days", minimum=1, maximum=31
+        )
     if "active" in body:
         if not isinstance(body["active"], bool):
             raise APIError("'active' must be true or false")
@@ -256,7 +345,7 @@ def list_employee_availability(employee_id):
     _employee(database, employee_id)
     availability = database.execute(
         """
-        SELECT id, employee_id, day_of_week, start_time, end_time
+        SELECT id, employee_id, day_of_week, start_time, end_time, preference
         FROM availability
         WHERE employee_id = ?
         ORDER BY day_of_week, start_time, end_time, id
@@ -273,6 +362,7 @@ def add_availability(employee_id):
 
     start_time = _time(body.get("start_time"), "start_time")
     end_time = _time(body.get("end_time"), "end_time")
+    preference = _preference(body.get("preference", "available"))
     if start_time >= end_time:
         raise APIError("'end_time' must be later than 'start_time'")
 
@@ -283,10 +373,10 @@ def add_availability(employee_id):
         cursor = database.execute(
             """
             INSERT INTO availability
-                (employee_id, day_of_week, start_time, end_time)
-            VALUES (?, ?, ?, ?)
+                (employee_id, day_of_week, start_time, end_time, preference)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (employee_id, day_of_week, start_time, end_time),
+            (employee_id, day_of_week, start_time, end_time, preference),
         )
         database.commit()
     except sqlite3.IntegrityError as error:
@@ -300,6 +390,7 @@ def add_availability(employee_id):
                 "day_of_week": day_of_week,
                 "start_time": start_time,
                 "end_time": end_time,
+                "preference": preference,
             }
         ),
         201,
@@ -309,7 +400,7 @@ def add_availability(employee_id):
 @bp.patch("/availability/<int:availability_id>")
 def update_availability(availability_id):
     body = _json_body()
-    supported_fields = {"day_of_week", "start_time", "end_time"}
+    supported_fields = {"day_of_week", "start_time", "end_time", "preference"}
     unknown_fields = set(body) - supported_fields
     if unknown_fields:
         raise APIError(
@@ -336,6 +427,11 @@ def update_availability(availability_id):
         if "end_time" in body
         else current["end_time"]
     )
+    preference = (
+        _preference(body["preference"])
+        if "preference" in body
+        else current["preference"]
+    )
     if start_time >= end_time:
         raise APIError("'end_time' must be later than 'start_time'")
 
@@ -343,10 +439,10 @@ def update_availability(availability_id):
         database.execute(
             """
             UPDATE availability
-            SET day_of_week = ?, start_time = ?, end_time = ?
+            SET day_of_week = ?, start_time = ?, end_time = ?, preference = ?
             WHERE id = ?
             """,
-            (day_of_week, start_time, end_time, availability_id),
+            (day_of_week, start_time, end_time, preference, availability_id),
         )
         database.commit()
     except sqlite3.IntegrityError as error:
@@ -361,6 +457,221 @@ def delete_availability(availability_id):
     database.execute("DELETE FROM availability WHERE id = ?", (availability_id,))
     database.commit()
     return "", 204
+
+
+@bp.get("/skills")
+def list_skills():
+    rows = get_db().execute(
+        "SELECT id, name, created_at FROM skills ORDER BY name"
+    ).fetchall()
+    return jsonify({"skills": [dict(row) for row in rows]})
+
+
+@bp.post("/skills")
+def create_skill():
+    name = _required_text(_json_body(), "name")
+    database = get_db()
+    try:
+        cursor = database.execute("INSERT INTO skills (name) VALUES (?)", (name,))
+        database.commit()
+    except sqlite3.IntegrityError as error:
+        raise APIError("A skill with that name already exists", 409) from error
+    return jsonify(dict(_skill(database, cursor.lastrowid))), 201
+
+
+def _employee_skills(database, employee_id):
+    return database.execute(
+        """
+        SELECT s.id, s.name, es.proficiency, es.created_at
+        FROM employee_skills AS es
+        JOIN skills AS s ON s.id = es.skill_id
+        WHERE es.employee_id = ?
+        ORDER BY s.name
+        """,
+        (employee_id,),
+    ).fetchall()
+
+
+@bp.get("/employees/<int:employee_id>/skills")
+def list_employee_skills(employee_id):
+    database = get_db()
+    _employee(database, employee_id)
+    return jsonify(
+        {"skills": [dict(row) for row in _employee_skills(database, employee_id)]}
+    )
+
+
+@bp.post("/employees/<int:employee_id>/skills")
+def assign_employee_skill(employee_id):
+    body = _json_body()
+    skill_name = _required_text(body, "skill_name")
+    proficiency = _integer(
+        body, "proficiency", minimum=1, maximum=5, default=3
+    )
+    database = get_db()
+    _employee(database, employee_id)
+    database.execute("INSERT OR IGNORE INTO skills (name) VALUES (?)", (skill_name,))
+    skill = database.execute(
+        "SELECT id, name FROM skills WHERE LOWER(name) = LOWER(?)", (skill_name,)
+    ).fetchone()
+    database.execute(
+        """
+        INSERT INTO employee_skills (employee_id, skill_id, proficiency)
+        VALUES (?, ?, ?)
+        ON CONFLICT(employee_id, skill_id)
+        DO UPDATE SET proficiency = excluded.proficiency
+        """,
+        (employee_id, skill["id"], proficiency),
+    )
+    database.commit()
+    assigned = database.execute(
+        """
+        SELECT s.id, s.name, es.proficiency, es.created_at
+        FROM employee_skills AS es
+        JOIN skills AS s ON s.id = es.skill_id
+        WHERE es.employee_id = ? AND es.skill_id = ?
+        """,
+        (employee_id, skill["id"]),
+    ).fetchone()
+    return jsonify(dict(assigned)), 201
+
+
+@bp.delete("/employees/<int:employee_id>/skills/<int:skill_id>")
+def remove_employee_skill(employee_id, skill_id):
+    database = get_db()
+    _employee(database, employee_id)
+    _skill(database, skill_id)
+    cursor = database.execute(
+        "DELETE FROM employee_skills WHERE employee_id = ? AND skill_id = ?",
+        (employee_id, skill_id),
+    )
+    if cursor.rowcount == 0:
+        raise APIError("Employee skill assignment not found", 404)
+    database.commit()
+    return "", 204
+
+
+def _time_off_rows(database, *, employee_id=None, status=None):
+    filters = []
+    parameters = []
+    if employee_id is not None:
+        filters.append("tor.employee_id = ?")
+        parameters.append(employee_id)
+    if status is not None:
+        filters.append("tor.status = ?")
+        parameters.append(status)
+    where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+    return database.execute(
+        f"""
+        SELECT tor.id, tor.employee_id, e.name AS employee_name,
+               tor.start_date, tor.end_date, tor.reason, tor.status,
+               tor.requested_at, tor.decided_by, tor.manager_note, tor.decided_at
+        FROM time_off_requests AS tor
+        JOIN employees AS e ON e.id = tor.employee_id
+        {where_clause}
+        ORDER BY tor.start_date, tor.id
+        """,
+        parameters,
+    ).fetchall()
+
+
+def _time_off_status(value):
+    if value is None:
+        return None
+    value = value.lower()
+    if value not in {"pending", "approved", "rejected"}:
+        raise APIError("'status' must be pending, approved, or rejected")
+    return value
+
+
+@bp.get("/time-off")
+def list_time_off():
+    status = _time_off_status(request.args.get("status"))
+    employee_id = request.args.get("employee_id")
+    if employee_id is not None:
+        try:
+            employee_id = int(employee_id)
+        except ValueError as error:
+            raise APIError("'employee_id' must be a positive integer") from error
+        if employee_id < 1:
+            raise APIError("'employee_id' must be a positive integer")
+    rows = _time_off_rows(get_db(), employee_id=employee_id, status=status)
+    return jsonify({"time_off_requests": [dict(row) for row in rows]})
+
+
+@bp.get("/employees/<int:employee_id>/time-off")
+def list_employee_time_off(employee_id):
+    database = get_db()
+    _employee(database, employee_id)
+    status = _time_off_status(request.args.get("status"))
+    rows = _time_off_rows(database, employee_id=employee_id, status=status)
+    return jsonify({"time_off_requests": [dict(row) for row in rows]})
+
+
+@bp.post("/employees/<int:employee_id>/time-off")
+def request_employee_time_off(employee_id):
+    body = _json_body()
+    start_date = _date_field(body.get("start_date"), "start_date")
+    end_date = _date_field(body.get("end_date"), "end_date")
+    if start_date > end_date:
+        raise APIError("'start_date' must be on or before 'end_date'")
+    reason = _optional_text(body, "reason")
+    database = get_db()
+    _employee(database, employee_id)
+    overlap = database.execute(
+        """
+        SELECT id FROM time_off_requests
+        WHERE employee_id = ?
+          AND status IN ('pending', 'approved')
+          AND start_date <= ? AND end_date >= ?
+        LIMIT 1
+        """,
+        (employee_id, end_date.isoformat(), start_date.isoformat()),
+    ).fetchone()
+    if overlap is not None:
+        raise APIError(
+            "An active time-off request already overlaps those dates", 409
+        )
+    cursor = database.execute(
+        """
+        INSERT INTO time_off_requests
+            (employee_id, start_date, end_date, reason)
+        VALUES (?, ?, ?, ?)
+        """,
+        (employee_id, start_date.isoformat(), end_date.isoformat(), reason),
+    )
+    database.commit()
+    return jsonify(dict(_time_off_request(database, cursor.lastrowid))), 201
+
+
+@bp.patch("/time-off/<int:request_id>/decision")
+def decide_time_off(request_id):
+    body = _json_body()
+    decision = _required_text(body, "decision").lower()
+    if decision not in {"approved", "rejected"}:
+        raise APIError("'decision' must be either 'approved' or 'rejected'")
+    manager_name = _required_text(body, "manager_name")
+    manager_note = body.get("manager_note")
+    if manager_note is not None and not isinstance(manager_note, str):
+        raise APIError("'manager_note' must be text")
+    database = get_db()
+    current = _time_off_request(database, request_id)
+    if current["status"] != "pending":
+        raise APIError("Only pending time-off requests can be decided", 409)
+    cursor = database.execute(
+        """
+        UPDATE time_off_requests
+        SET status = ?, decided_by = ?, manager_note = ?,
+            decided_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'pending'
+        """,
+        (decision, manager_name, manager_note, request_id),
+    )
+    if cursor.rowcount == 0:
+        database.rollback()
+        raise APIError("Only pending time-off requests can be decided", 409)
+    database.commit()
+    return jsonify(dict(_time_off_request(database, request_id)))
 
 
 def _filtered_shifts(database):
@@ -395,6 +706,14 @@ def _filtered_shifts(database):
             raise APIError("'required_role' must not be empty")
         filters.append("LOWER(s.required_role) = LOWER(?)")
         parameters.append(required_role)
+
+    required_department = request.args.get("required_department")
+    if required_department is not None:
+        required_department = required_department.strip()
+        if not required_department:
+            raise APIError("'required_department' must not be empty")
+        filters.append("LOWER(s.required_department) = LOWER(?)")
+        parameters.append(required_department)
 
     status = request.args.get("status")
     if status is not None:
@@ -504,6 +823,17 @@ def recommend_shift():
     end = datetime.strptime(end_time, "%H:%M")
     duration_hours = (end - start).total_seconds() / 3600
     required_role = _required_text(body, "required_role")
+    required_department = _optional_text(body, "required_department")
+    required_skills = body.get("required_skills", [])
+    if not isinstance(required_skills, list) or any(
+        not isinstance(item, str) or not item.strip() for item in required_skills
+    ):
+        raise APIError("'required_skills' must be a list of non-empty skill names")
+    required_skills = [item.strip() for item in required_skills]
+    if len({item.casefold() for item in required_skills}) != len(required_skills):
+        raise APIError("'required_skills' must not contain duplicates")
+    if len(required_skills) > 20:
+        raise APIError("'required_skills' must contain at most 20 skills")
     workload_score = _number(
         body, "workload_score", minimum=0, maximum=100
     )
@@ -538,6 +868,8 @@ def recommend_shift():
         required_staff_override=required_staff,
         allow_overtime=allow_overtime,
         model_strategy=model_strategy,
+        required_department=required_department,
+        required_skills=required_skills,
     )
     return jsonify(recommendation), 201
 
