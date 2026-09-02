@@ -131,6 +131,25 @@ paths:
   /api/employees/{employee_id}:
     parameters:
       - $ref: "#/components/parameters/EmployeeId"
+    get:
+      tags: [Employees]
+      operationId: getEmployee
+      summary: Get an employee by ID
+      responses:
+        "200":
+          description: Employee details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "404":
+          description: The employee does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Employee not found
     patch:
       tags: [Employees]
       operationId: updateEmployee

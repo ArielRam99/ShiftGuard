@@ -225,6 +225,12 @@ def list_employees():
     return jsonify({"employees": [dict(row) for row in employees]})
 
 
+@bp.get("/employees/<int:employee_id>")
+def get_employee(employee_id):
+    database = get_db()
+    return jsonify(dict(_employee(database, employee_id)))
+
+
 @bp.post("/employees")
 def create_employee():
     body = _json_body()

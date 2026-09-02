@@ -229,6 +229,24 @@ def test_list_update_and_delete_employee_availability(client):
     assert missing.status_code == 404
 
 
+def test_get_employee_by_id(client):
+    employee_id = _create_employee(client, "Lookup Employee")
+
+    response = client.get(f"/api/employees/{employee_id}")
+    assert response.status_code == 200
+
+    employee = response.get_json()
+    assert employee["id"] == employee_id
+    assert employee["name"] == "Lookup Employee"
+    assert employee["role"] == "Nurse"
+    assert employee["max_weekly_hours"] == 40
+    assert employee["hourly_rate"] == 30
+
+    missing = client.get("/api/employees/99999")
+    assert missing.status_code == 404
+    assert missing.get_json()["error"] == "Employee not found"
+
+
 def test_update_and_deactivate_employee(client):
     employee_id = _create_employee(client, "Employee Before")
     _add_tuesday_availability(client, employee_id)
