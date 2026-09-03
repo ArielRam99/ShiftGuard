@@ -88,7 +88,31 @@ paths:
       tags: [Employees]
       operationId: listEmployees
       summary: List employees
-      description: Returns all employees, including inactive employees, ordered by name.
+      description: |
+        Returns employees ordered by name. Results can be filtered by role,
+        department, active status, or any combination of those filters.
+      parameters:
+        - name: role
+          in: query
+          required: false
+          description: Filter employees by role. Matching is case-insensitive.
+          schema:
+            type: string
+          example: Nurse
+        - name: department
+          in: query
+          required: false
+          description: Filter employees by department. Matching is case-insensitive.
+          schema:
+            type: string
+          example: Clinical
+        - name: active
+          in: query
+          required: false
+          description: Filter employees by active status.
+          schema:
+            type: boolean
+          example: true
       responses:
         "200":
           description: Employee collection.
@@ -96,6 +120,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EmployeeListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
     post:
       tags: [Employees]
       operationId: createEmployee
