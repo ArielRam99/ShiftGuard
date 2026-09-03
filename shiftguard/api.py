@@ -213,15 +213,48 @@ def model_comparison():
 @bp.get("/employees")
 def list_employees():
     database = get_db()
+
+    filters = []
+    parameters = []
+
+    role = request.args.get("role")
+    if role is not None:
+        role = role.strip()
+        if not role:
+            raise APIError("'role' must not be empty")
+        filters.append("LOWER(role) = LOWER(?)")
+        parameters.append(role)
+
+    department = request.args.get("department")
+    if department is not None:
+        department = department.strip()
+        if not department:
+            raise APIError("'department' must not be empty")
+        filters.append("LOWER(department) = LOWER(?)")
+        parameters.append(department)
+
+    active = request.args.get("active")
+    if active is not None:
+        active = active.lower()
+        if active not in {"true", "false"}:
+            raise APIError("'active' must be true or false")
+        filters.append("active = ?")
+        parameters.append(1 if active == "true" else 0)
+
+    where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+
     employees = database.execute(
-        """
+        f"""
         SELECT id, name, role, max_weekly_hours, hourly_rate, department,
                max_overtime_hours, minimum_rest_hours, max_consecutive_days,
                active, created_at
         FROM employees
+        {where_clause}
         ORDER BY name
-        """
+        """,
+        parameters,
     ).fetchall()
+
     return jsonify({"employees": [dict(row) for row in employees]})
 
 

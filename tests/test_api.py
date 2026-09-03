@@ -247,6 +247,59 @@ def test_get_employee_by_id(client):
     assert missing.get_json()["error"] == "Employee not found"
 
 
+def test_filter_employees(client):
+    nurse_id = _create_employee(
+        client,
+        "Clinical Nurse",
+        department="Clinical",
+    )
+    _create_employee(
+        client,
+        "Emergency Nurse",
+        department="Emergency",
+    )
+    inactive_id = _create_employee(
+        client,
+        "Inactive Nurse",
+        department="Clinical",
+    )
+
+    deactivate = client.patch(
+        f"/api/employees/{inactive_id}",
+        json={"active": False},
+    )
+    assert deactivate.status_code == 200
+
+    by_role = client.get("/api/employees?role=Nurse")
+    assert by_role.status_code == 200
+    assert all(
+        employee["role"] == "Nurse"
+        for employee in by_role.get_json()["employees"]
+    )
+
+    by_department = client.get("/api/employees?department=Clinical")
+    assert by_department.status_code == 200
+    assert all(
+        employee["department"] == "Clinical"
+        for employee in by_department.get_json()["employees"]
+    )
+
+    combined = client.get(
+        "/api/employees?role=Nurse&department=Clinical&active=true"
+    )
+    assert combined.status_code == 200
+    employee_ids = [
+        employee["id"]
+        for employee in combined.get_json()["employees"]
+    ]
+    assert nurse_id in employee_ids
+    assert inactive_id not in employee_ids
+
+    invalid = client.get("/api/employees?active=maybe")
+    assert invalid.status_code == 400
+    assert invalid.get_json()["error"] == "'active' must be true or false"
+
+
 def test_update_and_deactivate_employee(client):
     employee_id = _create_employee(client, "Employee Before")
     _add_tuesday_availability(client, employee_id)
