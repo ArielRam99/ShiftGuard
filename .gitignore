@@ -8,4 +8,8 @@ htmlcov/
 instance/
 .env
 .DS_Store
-
+shiftguard.db
+*.db
+*.sqlite
+*.sqlite3
+*.pyc
