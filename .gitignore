@@ -1,3 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+instance/
+.env
+.DS_Store
 shiftguard.db
 *.db
 *.sqlite

@@ -1,0 +1,1548 @@
+openapi: 3.1.0
+info:
+  title: ShiftGuard AI API
+  version: 1.3.0
+  summary: Integration contract for the ShiftGuard AI scheduling MVP
+  description: |
+    The ShiftGuard AI API manages employees, preferred availability, skills,
+    time off, workforce constraints, advisory staffing recommendations, and
+    manager decisions.
+
+    AI output is advisory only. Every recommendation is created as a draft and
+    must be explicitly approved or rejected by a manager.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://127.0.0.1:5000
+    description: Local Flask development server
+tags:
+  - name: System
+    description: Service and model readiness
+  - name: Employees
+    description: Employee, availability, skill, and constraint management
+  - name: Time Off
+    description: Employee requests and manager decisions
+  - name: Scheduling
+    description: Advisory scheduling and manager decisions
+  - name: Reports
+    description: Downloadable schedule and model-performance reports
+paths:
+  /api/health:
+    get:
+      tags: [System]
+      operationId: getHealth
+      summary: Check service and database health
+      responses:
+        "200":
+          description: The API and database are available.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                service: ShiftGuard AI
+                status: ok
+  /api/model/status:
+    get:
+      tags: [System]
+      operationId: getModelStatus
+      summary: Get the active staffing strategy
+      description: |
+        Uses `rules_fallback` with fewer than five historical staffing records
+        and `random_forest` when at least five records are available.
+      responses:
+        "200":
+          description: Current model readiness and advisory status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelStatusResponse"
+              example:
+                training_records: 8
+                strategy: random_forest
+                advisory_only: true
+                supported_strategies:
+                  - auto
+                  - random_forest
+                  - gradient_boosting
+                  - linear_regression
+  /api/model/comparison:
+    get:
+      tags: [System]
+      operationId: compareModels
+      summary: Compare supported staffing models
+      description: |
+        Evaluates Random Forest, Gradient Boosting, and Linear Regression with
+        reproducible shuffled K-fold out-of-fold predictions. The best model is
+        selected by lowest MAE and then lowest RMSE.
+      responses:
+        "200":
+          description: Model comparison or a rules-fallback result when history is insufficient.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelComparisonResponse"
+  /api/employees:
+    get:
+      tags: [Employees]
+      operationId: listEmployees
+      summary: List employees
+      description: |
+        Returns employees ordered by name. Results can be filtered by role,
+        department, active status, or any combination of those filters.
+      parameters:
+        - name: role
+          in: query
+          required: false
+          description: Filter employees by role. Matching is case-insensitive.
+          schema:
+            type: string
+          example: Nurse
+        - name: department
+          in: query
+          required: false
+          description: Filter employees by department. Matching is case-insensitive.
+          schema:
+            type: string
+          example: Clinical
+        - name: active
+          in: query
+          required: false
+          description: Filter employees by active status.
+          schema:
+            type: boolean
+          example: true
+      responses:
+        "200":
+          description: Employee collection.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+    post:
+      tags: [Employees]
+      operationId: createEmployee
+      summary: Create an employee
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEmployeeRequest"
+            example:
+              name: Alex Rivera
+              role: Nurse
+              max_weekly_hours: 40
+              hourly_rate: 30
+      responses:
+        "201":
+          description: Employee created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: An employee with the same name already exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: An employee with that name already exists
+  /api/employees/{employee_id}:
+    parameters:
+      - $ref: "#/components/parameters/EmployeeId"
+    get:
+      tags: [Employees]
+      operationId: getEmployee
+      summary: Get an employee by ID
+      responses:
+        "200":
+          description: Employee details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "404":
+          description: The employee does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Employee not found
+    patch:
+      tags: [Employees]
+      operationId: updateEmployee
+      summary: Update or deactivate an employee
+      description: |
+        Updates one or more employee fields. Set `active` to false to deactivate
+        an employee without deleting historical schedules or availability.
+        Deactivated employees are excluded from new recommendations.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateEmployeeRequest"
+            example:
+              role: Supervisor
+              max_weekly_hours: 35
+              active: false
+      responses:
+        "200":
+          description: Updated employee.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Employee"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: The employee does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Employee not found
+        "409":
+          description: Another employee already uses the requested name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/employees/{employee_id}/availability:
+    parameters:
+      - $ref: "#/components/parameters/EmployeeId"
+    get:
+      tags: [Employees]
+      operationId: listEmployeeAvailability
+      summary: List an employee's recurring availability
+      responses:
+        "200":
+          description: Availability ordered by day and start time.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AvailabilityListResponse"
+        "404":
+          description: The employee does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Employee not found
+    post:
+      tags: [Employees]
+      operationId: addEmployeeAvailability
+      summary: Add recurring weekly availability
+      description: |
+        `day_of_week` is zero-based: 0 is Monday and 6 is Sunday. The end
+        time must be later than the start time; overnight ranges are not supported.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAvailabilityRequest"
+            example:
+              day_of_week: 1
+              start_time: "08:00"
+              end_time: "18:00"
+      responses:
+        "201":
+          description: Availability created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Availability"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: The employee does not exist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Employee not found
+        "409":
+          description: The same availability record already exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: That availability record already exists
+  /api/availability/{availability_id}:
+    parameters:
+      - $ref: "#/components/parameters/AvailabilityId"
+    patch:
+      tags: [Employees]
+      operationId: updateAvailability
+      summary: Update recurring availability
+      description: Updates one or more fields while preserving omitted values.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAvailabilityRequest"
+            example:
+              start_time: "07:30"
+              end_time: "17:30"
+      responses:
+        "200":
+          description: Updated availability.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Availability"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/AvailabilityNotFound"
+        "409":
+          description: The update would duplicate another availability record.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: That availability record already exists
+    delete:
+      tags: [Employees]
+      operationId: deleteAvailability
+      summary: Delete recurring availability
+      responses:
+        "204":
+          description: Availability deleted; the response has no body.
+        "404":
+          $ref: "#/components/responses/AvailabilityNotFound"
+  /api/skills:
+    get:
+      tags: [Employees]
+      operationId: listSkills
+      summary: List the skill catalog
+      responses:
+        "200":
+          description: Skills ordered by name.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SkillListResponse"
+    post:
+      tags: [Employees]
+      operationId: createSkill
+      summary: Add a skill to the catalog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSkillRequest"
+      responses:
+        "201":
+          description: Skill created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Skill"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: A case-insensitive skill with that name already exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/employees/{employee_id}/skills:
+    parameters:
+      - $ref: "#/components/parameters/EmployeeId"
+    get:
+      tags: [Employees]
+      operationId: listEmployeeSkills
+      summary: List an employee's skills
+      responses:
+        "200":
+          description: Assigned skills and proficiency levels.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeSkillListResponse"
+        "404":
+          description: Employee not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Employees]
+      operationId: assignEmployeeSkill
+      summary: Assign or update an employee skill
+      description: Creates the catalog skill when needed and upserts proficiency.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignEmployeeSkillRequest"
+      responses:
+        "201":
+          description: Skill assigned or proficiency updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmployeeSkill"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Employee not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/employees/{employee_id}/skills/{skill_id}:
+    parameters:
+      - $ref: "#/components/parameters/EmployeeId"
+      - $ref: "#/components/parameters/SkillId"
+    delete:
+      tags: [Employees]
+      operationId: removeEmployeeSkill
+      summary: Remove a skill from an employee
+      responses:
+        "204":
+          description: Skill assignment removed; the response has no body.
+        "404":
+          description: Employee, skill, or assignment not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/time-off:
+    get:
+      tags: [Time Off]
+      operationId: listTimeOffRequests
+      summary: List and filter time-off requests
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/TimeOffStatus"
+        - name: employee_id
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Matching time-off requests ordered by start date.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeOffListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /api/employees/{employee_id}/time-off:
+    parameters:
+      - $ref: "#/components/parameters/EmployeeId"
+    get:
+      tags: [Time Off]
+      operationId: listEmployeeTimeOff
+      summary: List an employee's time-off requests
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/TimeOffStatus"
+      responses:
+        "200":
+          description: The employee's matching time-off requests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeOffListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Employee not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      tags: [Time Off]
+      operationId: requestEmployeeTimeOff
+      summary: Submit a time-off request
+      description: |
+        New requests are pending. Pending and approved requests block matching
+        schedule recommendations until a manager rejects the request or the
+        requested dates pass.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTimeOffRequest"
+      responses:
+        "201":
+          description: Pending time-off request created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeOffRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Employee not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: An active request overlaps the requested dates.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/time-off/{request_id}/decision:
+    parameters:
+      - $ref: "#/components/parameters/TimeOffRequestId"
+    patch:
+      tags: [Time Off]
+      operationId: decideTimeOff
+      summary: Approve or reject a pending time-off request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecisionRequest"
+      responses:
+        "200":
+          description: Decision recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeOffRequest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Time-off request not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: The request was already decided.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/shifts:
+    get:
+      tags: [Scheduling]
+      operationId: listShifts
+      summary: List and filter schedules
+      description: |
+        Returns schedules in ascending date, start-time, and identifier order.
+        Filters are combined with AND. `employee_id` matches schedules containing
+        an assignment for that employee.
+      parameters:
+        - name: date_from
+          in: query
+          description: Inclusive start date.
+          schema:
+            type: string
+            format: date
+        - name: date_to
+          in: query
+          description: Inclusive end date.
+          schema:
+            type: string
+            format: date
+        - name: required_role
+          in: query
+          description: Case-insensitive exact role match.
+          schema:
+            type: string
+            minLength: 1
+        - name: required_department
+          in: query
+          description: Case-insensitive exact department match.
+          schema:
+            type: string
+            minLength: 1
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/ShiftStatus"
+        - name: employee_id
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Matching schedule collection.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShiftListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /api/shifts/recommendations:
+    post:
+      tags: [Scheduling]
+      operationId: createShiftRecommendation
+      summary: Generate and store a draft schedule recommendation
+      description: |
+        Predicts a staffing level unless `required_staff` is supplied, filters
+        employees by role, optional department and skills, preferred
+        availability, time off, rest, consecutive-day, and overtime rules.
+        Eligible employees are ranked with a workload-balancing fairness score,
+        and the result is stored as a draft.
+
+        Supplying `required_staff` is a manager override and results in
+        `model_source: manager_override`. Setting `allow_overtime` to true makes
+        overtime candidates eligible; it does not approve the draft.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRecommendationRequest"
+            examples:
+              predictedStaffing:
+                summary: Let the model choose the staffing level
+                value:
+                  shift_date: "2026-09-01"
+                  start_time: "09:00"
+                  end_time: "17:00"
+                  required_role: Nurse
+                  required_department: Clinical
+                  required_skills: [Patient Care]
+                  workload_score: 80
+                  model_strategy: auto
+              managerOverride:
+                summary: Manager supplies the staffing level
+                value:
+                  shift_date: "2026-09-01"
+                  start_time: "09:00"
+                  end_time: "17:00"
+                  required_role: Nurse
+                  workload_score: 60
+                  required_staff: 2
+                  allow_overtime: false
+      responses:
+        "201":
+          description: Draft recommendation created; manager action is still required.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /api/reports/schedules.{file_format}:
+    parameters:
+      - $ref: "#/components/parameters/ReportFormat"
+    get:
+      tags: [Reports]
+      operationId: exportSchedules
+      summary: Export filtered schedules
+      description: |
+        Downloads schedules and assignments in PDF or formatted Excel. Accepts
+        the same optional `date_from`, `date_to`, `required_role`,
+        `required_department`, `status`, and `employee_id` query filters as
+        `GET /api/shifts`.
+      responses:
+        "200":
+          description: Generated report file.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Unsupported report format.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/reports/analytics.{file_format}:
+    parameters:
+      - $ref: "#/components/parameters/ReportFormat"
+    get:
+      tags: [Reports]
+      operationId: exportAnalytics
+      summary: Export scheduling and model analytics
+      description: |
+        Downloads schedule-status totals, assignments, projected overtime, and
+        model-comparison metrics in PDF or formatted Excel. Schedule query
+        filters are supported.
+      responses:
+        "200":
+          description: Generated analytics report file.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Unsupported report format.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/shifts/{shift_id}:
+    parameters:
+      - $ref: "#/components/parameters/ShiftId"
+    get:
+      tags: [Scheduling]
+      operationId: getShift
+      summary: Retrieve a schedule recommendation
+      responses:
+        "200":
+          description: Draft, approved, or rejected schedule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shift"
+        "404":
+          $ref: "#/components/responses/ShiftNotFound"
+  /api/shifts/{shift_id}/decision:
+    parameters:
+      - $ref: "#/components/parameters/ShiftId"
+    patch:
+      tags: [Scheduling]
+      operationId: decideShift
+      summary: Approve or reject a draft recommendation
+      description: |
+        A recommendation may be decided only once. The decision is also applied
+        to every assignment in the recommendation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DecideShiftRequest"
+            example:
+              decision: approved
+              manager_name: Demo Manager
+              manager_note: Availability confirmed with the team.
+      responses:
+        "200":
+          description: Decision recorded and updated schedule returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shift"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/ShiftNotFound"
+        "409":
+          description: The schedule has already been approved or rejected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: Only draft recommendations can be decided
+components:
+  parameters:
+    EmployeeId:
+      name: employee_id
+      in: path
+      required: true
+      description: Positive employee identifier.
+      schema:
+        type: integer
+        minimum: 1
+    ShiftId:
+      name: shift_id
+      in: path
+      required: true
+      description: Positive shift identifier.
+      schema:
+        type: integer
+        minimum: 1
+    AvailabilityId:
+      name: availability_id
+      in: path
+      required: true
+      description: Positive availability identifier.
+      schema:
+        type: integer
+        minimum: 1
+    SkillId:
+      name: skill_id
+      in: path
+      required: true
+      description: Positive skill identifier.
+      schema:
+        type: integer
+        minimum: 1
+    TimeOffRequestId:
+      name: request_id
+      in: path
+      required: true
+      description: Positive time-off request identifier.
+      schema:
+        type: integer
+        minimum: 1
+    ReportFormat:
+      name: file_format
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [pdf, xlsx]
+  responses:
+    BadRequest:
+      description: Invalid JSON, a missing field, or a failed validation rule.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            invalidBody:
+              value:
+                error: Request body must be a JSON object
+            invalidTime:
+              value:
+                error: Overnight shifts are not supported in this MVP
+    ShiftNotFound:
+      description: The shift does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: Shift not found
+    AvailabilityNotFound:
+      description: The availability record does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: Availability not found
+  schemas:
+    HealthResponse:
+      type: object
+      required: [service, status]
+      properties:
+        service:
+          type: string
+          const: ShiftGuard AI
+        status:
+          type: string
+          const: ok
+    ModelStatusResponse:
+      type: object
+      required: [training_records, strategy, advisory_only, supported_strategies]
+      properties:
+        training_records:
+          type: integer
+          minimum: 0
+        strategy:
+          $ref: "#/components/schemas/PredictionStrategy"
+        advisory_only:
+          type: boolean
+          const: true
+        supported_strategies:
+          type: array
+          items:
+            $ref: "#/components/schemas/ForecastStrategy"
+    ModelComparisonResponse:
+      type: object
+      required:
+        - training_records
+        - minimum_training_records
+        - best_model
+        - models
+        - metric_guidance
+      properties:
+        training_records:
+          type: integer
+          minimum: 0
+        minimum_training_records:
+          type: integer
+          minimum: 1
+        best_model:
+          $ref: "#/components/schemas/ModelSource"
+        models:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModelComparisonResult"
+        metric_guidance:
+          type: object
+          required: [selection, mae, rmse, r2]
+          properties:
+            selection:
+              type: string
+            mae:
+              type: string
+            rmse:
+              type: string
+            r2:
+              type: string
+    ModelComparisonResult:
+      allOf:
+        - $ref: "#/components/schemas/ModelMetrics"
+        - type: object
+          required: [strategy, confidence_error_margin]
+          properties:
+            strategy:
+              $ref: "#/components/schemas/ModelStrategy"
+            confidence_error_margin:
+              type: integer
+              minimum: 1
+    EmployeeListResponse:
+      type: object
+      required: [employees]
+      properties:
+        employees:
+          type: array
+          items:
+            $ref: "#/components/schemas/Employee"
+    CreateEmployeeRequest:
+      type: object
+      required: [name, role]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Unique employee name after surrounding whitespace is removed.
+        role:
+          type: string
+          minLength: 1
+          description: Role matched case-insensitively during scheduling.
+        max_weekly_hours:
+          type: number
+          minimum: 1
+          maximum: 168
+          default: 40
+        hourly_rate:
+          type: number
+          minimum: 0
+          default: 0
+        department:
+          type: string
+          minLength: 1
+          default: General
+        max_overtime_hours:
+          type: number
+          minimum: 0
+          maximum: 128
+          default: 8
+        minimum_rest_hours:
+          type: number
+          minimum: 0
+          maximum: 48
+          default: 11
+        max_consecutive_days:
+          type: integer
+          minimum: 1
+          maximum: 31
+          default: 6
+    UpdateEmployeeRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+        role:
+          type: string
+          minLength: 1
+        max_weekly_hours:
+          type: number
+          minimum: 1
+          maximum: 168
+        hourly_rate:
+          type: number
+          minimum: 0
+        department:
+          type: string
+          minLength: 1
+        max_overtime_hours:
+          type: number
+          minimum: 0
+          maximum: 128
+        minimum_rest_hours:
+          type: number
+          minimum: 0
+          maximum: 48
+        max_consecutive_days:
+          type: integer
+          minimum: 1
+          maximum: 31
+        active:
+          type: boolean
+          description: False deactivates and true reactivates the employee.
+    Employee:
+      type: object
+      required:
+        - id
+        - name
+        - role
+        - max_weekly_hours
+        - hourly_rate
+        - department
+        - max_overtime_hours
+        - minimum_rest_hours
+        - max_consecutive_days
+        - active
+        - created_at
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+        role:
+          type: string
+        max_weekly_hours:
+          type: number
+        hourly_rate:
+          type: number
+        department:
+          type: string
+        max_overtime_hours:
+          type: number
+          minimum: 0
+        minimum_rest_hours:
+          type: number
+          minimum: 0
+        max_consecutive_days:
+          type: integer
+          minimum: 1
+        active:
+          type: integer
+          enum: [0, 1]
+          description: SQLite-backed active flag; 1 is active and 0 is inactive.
+        created_at:
+          type: string
+          description: SQLite UTC timestamp in `YYYY-MM-DD HH:MM:SS` form.
+          pattern: '^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$'
+    CreateAvailabilityRequest:
+      type: object
+      required: [day_of_week, start_time, end_time]
+      properties:
+        day_of_week:
+          type: integer
+          minimum: 0
+          maximum: 6
+          description: 0 is Monday and 6 is Sunday.
+        start_time:
+          $ref: "#/components/schemas/LocalTime"
+        end_time:
+          $ref: "#/components/schemas/LocalTime"
+        preference:
+          $ref: "#/components/schemas/AvailabilityPreference"
+    UpdateAvailabilityRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        day_of_week:
+          type: integer
+          minimum: 0
+          maximum: 6
+        start_time:
+          $ref: "#/components/schemas/LocalTime"
+        end_time:
+          $ref: "#/components/schemas/LocalTime"
+        preference:
+          $ref: "#/components/schemas/AvailabilityPreference"
+    Availability:
+      type: object
+      required: [id, employee_id, day_of_week, start_time, end_time, preference]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        employee_id:
+          type: integer
+          minimum: 1
+        day_of_week:
+          type: integer
+          minimum: 0
+          maximum: 6
+        start_time:
+          $ref: "#/components/schemas/LocalTime"
+        end_time:
+          $ref: "#/components/schemas/LocalTime"
+        preference:
+          $ref: "#/components/schemas/AvailabilityPreference"
+    AvailabilityListResponse:
+      type: object
+      required: [availability]
+      properties:
+        availability:
+          type: array
+          items:
+            $ref: "#/components/schemas/Availability"
+    CreateSkillRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+    Skill:
+      type: object
+      required: [id, name, created_at]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+        created_at:
+          type: string
+    SkillListResponse:
+      type: object
+      required: [skills]
+      properties:
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/Skill"
+    AssignEmployeeSkillRequest:
+      type: object
+      required: [skill_name]
+      properties:
+        skill_name:
+          type: string
+          minLength: 1
+        proficiency:
+          type: integer
+          minimum: 1
+          maximum: 5
+          default: 3
+    EmployeeSkill:
+      type: object
+      required: [id, name, proficiency, created_at]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+          description: Skill identifier.
+        name:
+          type: string
+        proficiency:
+          type: integer
+          minimum: 1
+          maximum: 5
+        created_at:
+          type: string
+    EmployeeSkillListResponse:
+      type: object
+      required: [skills]
+      properties:
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmployeeSkill"
+    CreateTimeOffRequest:
+      type: object
+      required: [start_date, end_date]
+      properties:
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        reason:
+          type: string
+          minLength: 1
+    DecisionRequest:
+      type: object
+      required: [decision, manager_name]
+      properties:
+        decision:
+          type: string
+          enum: [approved, rejected]
+        manager_name:
+          type: string
+          minLength: 1
+        manager_note:
+          type: [string, "null"]
+    TimeOffRequest:
+      type: object
+      required:
+        - id
+        - employee_id
+        - start_date
+        - end_date
+        - reason
+        - status
+        - requested_at
+        - decided_by
+        - manager_note
+        - decided_at
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        employee_id:
+          type: integer
+          minimum: 1
+        employee_name:
+          type: string
+          description: Present in list responses.
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        reason:
+          type: [string, "null"]
+        status:
+          $ref: "#/components/schemas/TimeOffStatus"
+        requested_at:
+          type: string
+        decided_by:
+          type: [string, "null"]
+        manager_note:
+          type: [string, "null"]
+        decided_at:
+          type: [string, "null"]
+    TimeOffListResponse:
+      type: object
+      required: [time_off_requests]
+      properties:
+        time_off_requests:
+          type: array
+          items:
+            $ref: "#/components/schemas/TimeOffRequest"
+    CreateRecommendationRequest:
+      type: object
+      required:
+        - shift_date
+        - start_time
+        - end_time
+        - required_role
+        - workload_score
+      properties:
+        shift_date:
+          type: string
+          format: date
+        start_time:
+          $ref: "#/components/schemas/LocalTime"
+        end_time:
+          $ref: "#/components/schemas/LocalTime"
+        required_role:
+          type: string
+          minLength: 1
+        required_department:
+          type: string
+          minLength: 1
+        required_skills:
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+        workload_score:
+          type: number
+          minimum: 0
+          maximum: 100
+        required_staff:
+          type: integer
+          minimum: 1
+          maximum: 50
+          description: Optional manager override for the predicted staffing level.
+        allow_overtime:
+          type: boolean
+          default: false
+        model_strategy:
+          allOf:
+            - $ref: "#/components/schemas/ForecastStrategy"
+          default: random_forest
+          description: |
+            Selects a model. `auto` uses the lowest-MAE comparison result.
+            Ignored when `required_staff` supplies a manager override.
+    DecideShiftRequest:
+      type: object
+      required: [decision, manager_name]
+      properties:
+        decision:
+          type: string
+          enum: [approved, rejected]
+          description: Input is normalized to lowercase by the API.
+        manager_name:
+          type: string
+          minLength: 1
+        manager_note:
+          type: [string, "null"]
+    Shift:
+      type: object
+      required:
+        - id
+        - shift_date
+        - start_time
+        - end_time
+        - duration_hours
+        - required_role
+        - required_department
+        - required_skills
+        - workload_score
+        - required_staff
+        - model_source
+        - staffing_range
+        - model_mae
+        - constraint_summary
+        - constraint_warnings
+        - status
+        - decided_by
+        - manager_note
+        - created_at
+        - decided_at
+        - assignments
+        - requires_manager_approval
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        shift_date:
+          type: string
+          format: date
+        start_time:
+          $ref: "#/components/schemas/LocalTime"
+        end_time:
+          $ref: "#/components/schemas/LocalTime"
+        duration_hours:
+          type: number
+          exclusiveMinimum: 0
+        required_role:
+          type: string
+        required_department:
+          type: [string, "null"]
+        required_skills:
+          type: array
+          items:
+            type: string
+        workload_score:
+          type: number
+          minimum: 0
+          maximum: 100
+        required_staff:
+          type: integer
+          minimum: 1
+          maximum: 50
+        model_source:
+          $ref: "#/components/schemas/ModelSource"
+        staffing_range:
+          $ref: "#/components/schemas/StaffingRange"
+        model_mae:
+          type: [number, "null"]
+          minimum: 0
+          description: Cross-validated MAE for the selected model, or null for an override/fallback.
+        constraint_summary:
+          $ref: "#/components/schemas/ConstraintSummary"
+        constraint_warnings:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: "#/components/schemas/ShiftStatus"
+        decided_by:
+          type: [string, "null"]
+        manager_note:
+          type: [string, "null"]
+        created_at:
+          type: string
+          description: SQLite UTC timestamp in `YYYY-MM-DD HH:MM:SS` form.
+        decided_at:
+          type: [string, "null"]
+          description: SQLite UTC timestamp, or null while the schedule is a draft.
+        assignments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShiftAssignment"
+        requires_manager_approval:
+          type: boolean
+          description: True exactly while `status` is `draft`.
+    ShiftListResponse:
+      type: object
+      required: [shifts]
+      properties:
+        shifts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Shift"
+    RecommendationResponse:
+      allOf:
+        - $ref: "#/components/schemas/Shift"
+        - type: object
+          required: [training_records, coverage_gap]
+          properties:
+            training_records:
+              type: integer
+              minimum: 0
+              description: Historical records available when this recommendation was made.
+            coverage_gap:
+              type: integer
+              minimum: 0
+              description: Required positions for which no eligible employee was selected.
+            model_metrics:
+              $ref: "#/components/schemas/ModelMetrics"
+    ShiftAssignment:
+      type: object
+      required:
+        - id
+        - employee_id
+        - employee_name
+        - role
+        - department
+        - recommendation_score
+        - projected_weekly_hours
+        - projected_overtime_hours
+        - reason
+        - status
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        employee_id:
+          type: integer
+          minimum: 1
+        employee_name:
+          type: string
+        role:
+          type: string
+        department:
+          type: string
+        recommendation_score:
+          type: number
+        projected_weekly_hours:
+          type: number
+          minimum: 0
+        projected_overtime_hours:
+          type: number
+          minimum: 0
+        reason:
+          type: string
+        status:
+          type: string
+          enum: [recommended, approved, rejected]
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+    ConstraintSummary:
+      type: object
+      required:
+        - considered_candidates
+        - eligible_candidates
+        - selected_candidates
+        - excluded
+        - fairness_policy
+      properties:
+        considered_candidates:
+          type: integer
+          minimum: 0
+        eligible_candidates:
+          type: integer
+          minimum: 0
+        selected_candidates:
+          type: integer
+          minimum: 0
+        excluded:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+        fairness_policy:
+          type: string
+    LocalTime:
+      type: string
+      pattern: '^([01]\\d|2[0-3]):[0-5]\\d$'
+      example: "09:00"
+      description: Local wall-clock time in 24-hour `HH:MM` form.
+    AvailabilityPreference:
+      type: string
+      enum: [available, preferred]
+      default: available
+    TimeOffStatus:
+      type: string
+      enum: [pending, approved, rejected]
+    PredictionStrategy:
+      type: string
+      enum: [rules_fallback, random_forest]
+    ForecastStrategy:
+      type: string
+      enum: [auto, random_forest, gradient_boosting, linear_regression]
+    ModelStrategy:
+      type: string
+      enum: [random_forest, gradient_boosting, linear_regression]
+    ModelSource:
+      type: string
+      enum:
+        - rules_fallback
+        - random_forest
+        - gradient_boosting
+        - linear_regression
+        - manager_override
+    ModelMetrics:
+      type: object
+      required: [mae, rmse, r2]
+      properties:
+        mae:
+          type: number
+          minimum: 0
+        rmse:
+          type: number
+          minimum: 0
+        r2:
+          type: number
+    StaffingRange:
+      type: object
+      required: [minimum, maximum, confidence_level]
+      properties:
+        minimum:
+          type: integer
+          minimum: 1
+        maximum:
+          type: integer
+          minimum: 1
+        confidence_level:
+          type: [number, "null"]
+          minimum: 0
+          maximum: 1
+          description: Operational error-band level; null for a manager override.
+    ShiftStatus:
+      type: string
+      enum: [draft, approved, rejected]
