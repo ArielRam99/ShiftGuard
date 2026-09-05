@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from flask import Flask
+from flask import Flask, render_template, send_from_directory
 
 from . import api, db
 
@@ -26,6 +26,18 @@ def create_app(test_config=None):
     # first-time users do not need a separate migration step for this MVP.
     with app.app_context():
         db.init_db()
+
+    @app.get("/")
+    def dashboard():
+        return render_template("dashboard.html")
+
+    @app.get("/sample-data.csv")
+    def sample_data():
+        return send_from_directory(
+            Path(app.root_path).parent / "sample_data",
+            "sample_shifts_year.csv",
+            as_attachment=True,
+        )
 
     return app
 

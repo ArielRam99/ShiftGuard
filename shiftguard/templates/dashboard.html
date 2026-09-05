@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ShiftGuard workforce scheduling dashboard">
+  <title>ShiftGuard | Scheduling Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,600&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ink: '#17201c',
+            forest: '#174d3a',
+            leaf: '#2f7658',
+            paper: '#f5f6f2',
+            sun: '#e8b44f',
+            coral: '#d9694b'
+          },
+          fontFamily: {
+            sans: ['DM Sans', 'sans-serif'],
+            display: ['Newsreader', 'serif']
+          },
+          boxShadow: {
+            panel: '0 18px 50px rgba(23, 32, 28, 0.08)'
+          }
+        }
+      }
+    }
+  </script>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <style>
+    [data-view] { display: none; }
+    [data-view].is-active { display: block; }
+    .field { width: 100%; border: 1px solid #d8ddd8; border-radius: 6px; background: white; padding: .65rem .75rem; color: #17201c; outline: none; }
+    .field:focus { border-color: #2f7658; box-shadow: 0 0 0 3px rgba(47, 118, 88, .12); }
+    .label { display: block; margin-bottom: .4rem; font-size: .75rem; font-weight: 700; color: #526059; text-transform: uppercase; }
+    .nav-button[aria-current="page"] { background: #174d3a; color: white; }
+    .metric-bar { transition: width 500ms ease; }
+    @media (prefers-reduced-motion: no-preference) {
+      .reveal { animation: rise .45s ease both; }
+      @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-paper font-sans text-ink">
+  <div class="min-h-screen lg:grid lg:grid-cols-[240px_1fr]">
+    <aside class="border-b border-black/10 bg-[#e9ede7] lg:min-h-screen lg:border-b-0 lg:border-r">
+      <div class="flex h-full flex-col px-4 py-4 lg:px-5 lg:py-7">
+        <div class="flex items-center justify-between lg:block">
+          <a href="/" class="flex items-center gap-3" aria-label="ShiftGuard home">
+            <span class="grid size-10 place-items-center rounded-md bg-forest text-white"><i data-lucide="shield-check" class="size-5"></i></span>
+            <span><strong class="block font-display text-2xl leading-none">ShiftGuard</strong><span class="text-xs text-black/55">Scheduling console</span></span>
+          </a>
+          <span id="serviceBadge" class="flex items-center gap-2 text-xs font-semibold text-black/60"><span class="size-2 rounded-full bg-sun"></span>Checking</span>
+        </div>
+        <nav class="mt-5 flex gap-2 overflow-x-auto lg:mt-10 lg:block lg:space-y-2" aria-label="Dashboard views">
+          <button class="nav-button flex min-w-max items-center gap-3 rounded-md px-3 py-2.5 text-sm font-semibold text-black/65 lg:w-full" data-target="schedule" aria-current="page"><i data-lucide="calendar-range" class="size-4"></i>Schedule</button>
+          <button class="nav-button flex min-w-max items-center gap-3 rounded-md px-3 py-2.5 text-sm font-semibold text-black/65 lg:w-full" data-target="data"><i data-lucide="database" class="size-4"></i>Training data</button>
+          <button class="nav-button flex min-w-max items-center gap-3 rounded-md px-3 py-2.5 text-sm font-semibold text-black/65 lg:w-full" data-target="models"><i data-lucide="chart-no-axes-combined" class="size-4"></i>Models</button>
+        </nav>
+        <div class="mt-auto hidden border-t border-black/10 pt-5 text-xs leading-5 text-black/55 lg:block">Recommendations are advisory and require manager approval.</div>
+      </div>
+    </aside>
+
+    <main class="min-w-0">
+      <header class="border-b border-black/10 bg-white/75 px-5 py-5 backdrop-blur md:px-8 lg:px-10">
+        <div class="mx-auto flex max-w-7xl items-center justify-between gap-4">
+          <div><p class="text-xs font-bold uppercase text-leaf">Workforce operations</p><h1 id="pageTitle" class="font-display text-3xl">Build a safe shift plan</h1></div>
+          <div class="hidden items-center gap-2 sm:flex">
+            <a href="/api/reports/schedules.xlsx" class="flex items-center gap-2 rounded-md border border-black/15 bg-white px-3 py-2 text-sm font-semibold hover:border-leaf"><i data-lucide="download" class="size-4"></i>Schedules</a>
+            <button id="refreshButton" class="grid size-10 place-items-center rounded-md border border-black/15 bg-white hover:border-leaf" title="Refresh dashboard"><i data-lucide="refresh-cw" class="size-4"></i></button>
+          </div>
+        </div>
+      </header>
+
+      <div class="mx-auto max-w-7xl px-5 py-6 md:px-8 lg:px-10 lg:py-9">
+        <div id="toast" class="fixed right-5 top-5 z-50 hidden max-w-sm rounded-md bg-ink px-4 py-3 text-sm text-white shadow-panel" role="status"></div>
+
+        <section data-view="schedule" class="is-active reveal">
+          <div class="mb-7 grid gap-4 sm:grid-cols-3">
+            <div class="border-l-4 border-leaf bg-white px-5 py-4 shadow-panel"><p class="text-xs font-bold uppercase text-black/50">Training rows</p><p id="trainingCount" class="mt-1 text-2xl font-bold">--</p></div>
+            <div class="border-l-4 border-sun bg-white px-5 py-4 shadow-panel"><p class="text-xs font-bold uppercase text-black/50">Active model</p><p id="activeModel" class="mt-1 truncate text-lg font-bold">Loading</p></div>
+            <div class="border-l-4 border-coral bg-white px-5 py-4 shadow-panel"><p class="text-xs font-bold uppercase text-black/50">Latest coverage</p><p id="coverageStat" class="mt-1 text-2xl font-bold">--</p></div>
+          </div>
+
+          <div class="grid items-start gap-6 xl:grid-cols-[minmax(320px,420px)_1fr]">
+            <form id="scheduleForm" class="rounded-lg border border-black/10 bg-white p-5 shadow-panel md:p-6">
+              <div class="mb-6 flex items-start justify-between"><div><h2 class="font-display text-2xl">Shift requirements</h2><p class="mt-1 text-sm text-black/55">Set demand and operational constraints.</p></div><i data-lucide="sliders-horizontal" class="size-5 text-leaf"></i></div>
+              <div class="grid gap-4 sm:grid-cols-2">
+                <label><span class="label">Shift date</span><input class="field" type="date" name="shift_date" required></label>
+                <label><span class="label">Model method</span><select class="field" name="model_strategy"><option value="auto">Auto select</option><option value="random_forest">Random Forest</option><option value="gradient_boosting">Gradient Boosting</option><option value="linear_regression">Linear Regression</option></select></label>
+                <label><span class="label">Starts</span><input class="field" type="time" name="start_time" value="09:00" required></label>
+                <label><span class="label">Ends</span><input class="field" type="time" name="end_time" value="17:00" required></label>
+                <label><span class="label">Employee role</span><input class="field" name="required_role" list="roleOptions" placeholder="Nurse" required><datalist id="roleOptions"></datalist></label>
+                <label><span class="label">Department</span><input class="field" name="required_department" list="departmentOptions" placeholder="Any department"><datalist id="departmentOptions"></datalist></label>
+              </div>
+              <label class="mt-4 block"><span class="label">Required skills</span><select id="skillSelect" class="field" name="required_skills" multiple size="3"><option disabled>Loading skills...</option></select><span class="mt-1 block text-xs text-black/45">Hold Ctrl to choose multiple skills.</span></label>
+              <label class="mt-5 block"><span class="mb-2 flex justify-between text-sm font-semibold"><span>Workload score</span><output id="workloadOutput">60</output></span><input id="workloadInput" class="w-full accent-leaf" type="range" name="workload_score" min="0" max="100" value="60"></label>
+              <div class="mt-5 grid gap-3 sm:grid-cols-2">
+                <label class="flex cursor-pointer items-center gap-3 rounded-md border border-black/10 p-3"><input id="overrideToggle" type="checkbox" class="size-4 accent-leaf"><span class="text-sm font-semibold">Override staffing</span></label>
+                <input id="staffingOverride" class="field" type="number" name="required_staff" min="1" max="50" value="3" disabled aria-label="Required staff override">
+                <label class="flex cursor-pointer items-center gap-3 rounded-md border border-black/10 p-3 sm:col-span-2"><input type="checkbox" name="allow_overtime" class="size-4 accent-leaf"><span><strong class="block text-sm">Allow overtime candidates</strong><span class="text-xs text-black/50">Employee overtime ceilings still apply.</span></span></label>
+              </div>
+              <button id="predictButton" class="mt-6 flex w-full items-center justify-center gap-2 rounded-md bg-forest px-4 py-3 text-sm font-bold text-white hover:bg-leaf disabled:cursor-wait disabled:opacity-60"><i data-lucide="sparkles" class="size-4"></i>Generate recommendation</button>
+            </form>
+
+            <section id="resultsPanel" class="min-h-[520px] rounded-lg border border-black/10 bg-white shadow-panel">
+              <div id="emptyResults" class="grid min-h-[520px] place-items-center px-6 text-center"><div><span class="mx-auto grid size-14 place-items-center rounded-full bg-[#e9ede7] text-forest"><i data-lucide="calendar-search" class="size-6"></i></span><h2 class="mt-4 font-display text-2xl">No recommendation yet</h2><p class="mx-auto mt-2 max-w-sm text-sm leading-6 text-black/55">Complete the shift requirements to predict staffing and rank eligible employees.</p></div></div>
+              <div id="resultsContent" class="hidden">
+                <div class="border-b border-black/10 p-5 md:p-6">
+                  <div class="flex flex-wrap items-start justify-between gap-4"><div><div class="flex items-center gap-2"><span id="resultStatus" class="rounded-full bg-sun/20 px-2.5 py-1 text-xs font-bold uppercase text-[#795411]">Draft</span><span id="resultId" class="text-xs text-black/45"></span></div><h2 id="resultTitle" class="mt-2 font-display text-3xl"></h2><p id="resultSubtitle" class="mt-1 text-sm text-black/55"></p></div><div class="text-right"><p class="text-xs font-bold uppercase text-black/45">Predicted need</p><p id="requiredStaff" class="text-4xl font-bold text-forest"></p></div></div>
+                  <div id="warningList" class="mt-4 space-y-2"></div>
+                </div>
+                <div class="grid grid-cols-2 border-b border-black/10 md:grid-cols-4">
+                  <div class="border-r border-black/10 p-4"><p class="text-xs font-bold uppercase text-black/45">Assigned</p><p id="assignedCount" class="mt-1 text-xl font-bold"></p></div>
+                  <div class="border-r border-black/10 p-4"><p class="text-xs font-bold uppercase text-black/45">Coverage gap</p><p id="coverageGap" class="mt-1 text-xl font-bold"></p></div>
+                  <div class="border-r border-black/10 p-4"><p class="text-xs font-bold uppercase text-black/45">95% range</p><p id="staffingRange" class="mt-1 text-xl font-bold"></p></div>
+                  <div class="p-4"><p class="text-xs font-bold uppercase text-black/45">Model</p><p id="resultModel" class="mt-1 truncate text-sm font-bold"></p></div>
+                </div>
+                <div class="p-5 md:p-6"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">Recommended employees</h3><span id="candidateSummary" class="text-xs text-black/45"></span></div><div id="assignmentList" class="space-y-3"></div></div>
+                <div id="decisionPanel" class="border-t border-black/10 bg-[#f7f8f5] p-5 md:flex md:items-end md:gap-3 md:p-6">
+                  <label class="block flex-1"><span class="label">Manager name</span><input id="managerName" class="field" placeholder="Your name"></label>
+                  <label class="mt-3 block flex-[1.5] md:mt-0"><span class="label">Decision note</span><input id="managerNote" class="field" placeholder="Optional review note"></label>
+                  <div class="mt-3 flex gap-2 md:mt-0"><button data-decision="rejected" class="flex items-center gap-2 rounded-md border border-coral px-3 py-2.5 text-sm font-bold text-coral"><i data-lucide="x" class="size-4"></i>Reject</button><button data-decision="approved" class="flex items-center gap-2 rounded-md bg-forest px-3 py-2.5 text-sm font-bold text-white"><i data-lucide="check" class="size-4"></i>Approve</button></div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section data-view="data" class="reveal">
+          <div class="grid items-start gap-6 lg:grid-cols-[1.1fr_.9fr]">
+            <form id="uploadForm" class="rounded-lg border border-black/10 bg-white p-6 shadow-panel">
+              <div class="flex items-start justify-between"><div><p class="text-xs font-bold uppercase text-leaf">Historical demand</p><h2 class="mt-1 font-display text-3xl">Import training data</h2></div><i data-lucide="file-up" class="size-6 text-leaf"></i></div>
+              <p class="mt-3 max-w-xl text-sm leading-6 text-black/55">Upload prior workload and headcount observations. Imports are validated as one batch, so invalid rows never leave partial data behind.</p>
+              <label id="dropZone" class="mt-6 flex min-h-56 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-black/20 bg-[#f7f8f5] p-6 text-center hover:border-leaf"><input id="csvFile" class="sr-only" type="file" name="file" accept=".csv,text/csv" required><span class="grid size-12 place-items-center rounded-full bg-white text-forest shadow"><i data-lucide="upload-cloud" class="size-5"></i></span><strong id="fileName" class="mt-4">Drop a CSV here or browse</strong><span id="fileMeta" class="mt-1 text-xs text-black/45">UTF-8, up to 10,000 rows</span></label>
+              <button id="uploadButton" class="mt-4 flex w-full items-center justify-center gap-2 rounded-md bg-forest px-4 py-3 text-sm font-bold text-white disabled:opacity-50"><i data-lucide="database-zap" class="size-4"></i>Import records</button>
+              <div id="uploadResult" class="mt-4 hidden rounded-md border p-4 text-sm"></div>
+            </form>
+            <div class="space-y-6">
+              <section class="rounded-lg border border-black/10 bg-ink p-6 text-white shadow-panel"><p class="text-xs font-bold uppercase text-sun">Required columns</p><div class="mt-4 overflow-hidden rounded-md border border-white/15"><div class="grid grid-cols-2 gap-px bg-white/10 text-sm"><code class="bg-ink p-3">date</code><span class="bg-ink p-3 text-white/60">YYYY-MM-DD</span><code class="bg-ink p-3">day_of_week</code><span class="bg-ink p-3 text-white/60">0 Monday - 6 Sunday</span><code class="bg-ink p-3">workload_hours</code><span class="bg-ink p-3 text-white/60">0 - 100</span><code class="bg-ink p-3">actual_headcount</code><span class="bg-ink p-3 text-white/60">1 - 50</span></div></div></section>
+              <section class="border-l-4 border-sun bg-white p-5 shadow-panel"><h3 class="font-bold">Need a starting point?</h3><p class="mt-1 text-sm text-black/55">The repository includes a full year of sample staffing history.</p><a href="/sample-data.csv" class="mt-3 inline-flex items-center gap-2 text-sm font-bold text-forest" download><i data-lucide="download" class="size-4"></i>Download sample CSV</a></section>
+            </div>
+          </div>
+        </section>
+
+        <section data-view="models" class="reveal">
+          <div class="mb-6 flex flex-wrap items-end justify-between gap-4"><div><p class="text-xs font-bold uppercase text-leaf">Scikit-learn</p><h2 class="mt-1 font-display text-3xl">Model comparison</h2><p class="mt-1 text-sm text-black/55">Models are ranked by lowest MAE, then lowest RMSE.</p></div><a href="/api/reports/analytics.pdf" class="flex items-center gap-2 rounded-md border border-black/15 bg-white px-3 py-2 text-sm font-bold"><i data-lucide="file-chart-column" class="size-4"></i>Analytics PDF</a></div>
+          <div id="modelFallback" class="hidden border-l-4 border-sun bg-white p-5 shadow-panel"></div>
+          <div id="modelGrid" class="grid gap-5 lg:grid-cols-3"></div>
+          <section class="mt-6 rounded-lg bg-ink p-6 text-white shadow-panel"><div class="grid gap-6 md:grid-cols-3"><div><p class="text-xs font-bold uppercase text-sun">MAE</p><p class="mt-2 text-sm text-white/65">Average absolute staffing error. Lower is better.</p></div><div><p class="text-xs font-bold uppercase text-sun">RMSE</p><p class="mt-2 text-sm text-white/65">Penalizes larger prediction errors. Lower is better.</p></div><div><p class="text-xs font-bold uppercase text-sun">R²</p><p class="mt-2 text-sm text-white/65">Share of variance explained. Higher is better.</p></div></div></section>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+</body>
+</html>
