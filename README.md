@@ -1,9 +1,6 @@
 # ShiftGuard AI
 
-ShiftGuard AI is a workforce-scheduling MVP that recommends staffing levels and
-employees while helping managers reduce understaffing, overtime, and burnout.
-Its recommendations are advisory: a manager must explicitly approve or reject
-every generated schedule.
+ShiftGuard AI is a workforce-scheduling MVP that recommends staffing levels and employees while requiring manager approval for every generated schedule.
 
 ## What this MVP includes
 
