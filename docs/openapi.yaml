@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ShiftGuard AI API
-  version: 1.3.0
+  version: 1.4.0
   summary: Integration contract for the ShiftGuard AI scheduling MVP
   description: |
     The ShiftGuard AI API manages employees, preferred availability, skills,
@@ -19,6 +19,8 @@ servers:
 tags:
   - name: System
     description: Service and model readiness
+  - name: Training Data
+    description: Historical staffing data used to train prediction models
   - name: Employees
     description: Employee, availability, skill, and constraint management
   - name: Time Off
@@ -83,6 +85,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ModelComparisonResponse"
+  /api/historical-staffing/import:
+    post:
+      tags: [Training Data]
+      operationId: importHistoricalStaffing
+      summary: Import historical staffing observations from CSV
+      description: |
+        Validates and imports the complete file atomically. The columns must be
+        `date`, `day_of_week`, `workload_hours`, and `actual_headcount`.
+        Workload hours become the 0-100 workload score, and imported records
+        use an eight-hour shift length. Repeated observations are skipped.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Import totals, including duplicates that were skipped.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoricalStaffingImportResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
   /api/employees:
     get:
       tags: [Employees]
@@ -918,6 +950,19 @@ components:
             confidence_error_margin:
               type: integer
               minimum: 1
+    HistoricalStaffingImportResponse:
+      type: object
+      required: [imported_records, skipped_duplicates, total_rows]
+      properties:
+        imported_records:
+          type: integer
+          minimum: 0
+        skipped_duplicates:
+          type: integer
+          minimum: 0
+        total_rows:
+          type: integer
+          minimum: 1
     EmployeeListResponse:
       type: object
       required: [employees]

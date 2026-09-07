@@ -1,3 +1,5 @@
+import csv
+import io
 import sqlite3
 from datetime import date, datetime
 
@@ -208,6 +210,82 @@ def model_comparison():
         "r2": "Explained variance; higher is better",
     }
     return jsonify(comparison)
+
+
+@bp.post("/historical-staffing/import")
+def import_historical_staffing():
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        raise APIError("A CSV file is required")
+    if not upload.filename.lower().endswith(".csv"):
+        raise APIError("The uploaded file must use the .csv extension")
+
+    try:
+        content = upload.read().decode("utf-8-sig")
+    except UnicodeDecodeError as error:
+        raise APIError("The CSV file must be UTF-8 encoded") from error
+
+    reader = csv.DictReader(io.StringIO(content))
+    required_columns = {
+        "date",
+        "day_of_week",
+        "workload_hours",
+        "actual_headcount",
+    }
+    if reader.fieldnames is None or set(reader.fieldnames) != required_columns:
+        raise APIError(
+            "CSV columns must be date, day_of_week, workload_hours, "
+            "and actual_headcount"
+        )
+
+    rows = []
+    errors = []
+    for row_number, row in enumerate(reader, start=2):
+        try:
+            staffing_date = date.fromisoformat(row["date"].strip())
+            day_of_week = int(row["day_of_week"])
+            workload_score = float(row["workload_hours"])
+            required_staff = int(row["actual_headcount"])
+            if day_of_week != staffing_date.weekday():
+                raise ValueError("day_of_week does not match date")
+            if not 0 <= workload_score <= 100:
+                raise ValueError("workload_hours must be between 0 and 100")
+            if not 1 <= required_staff <= 50:
+                raise ValueError("actual_headcount must be between 1 and 50")
+            rows.append((day_of_week, workload_score, 8.0, required_staff))
+        except (TypeError, ValueError) as error:
+            errors.append({"row": row_number, "error": str(error)})
+        if len(rows) + len(errors) > 10000:
+            raise APIError("CSV files may contain at most 10,000 data rows")
+
+    if not rows and not errors:
+        raise APIError("The CSV file contains no data rows")
+    if errors:
+        raise APIError(
+            "CSV validation failed; no records were imported",
+            details={"invalid_rows": errors[:25], "invalid_count": len(errors)},
+        )
+
+    database = get_db()
+    imported = 0
+    for values in rows:
+        cursor = database.execute(
+            """
+            INSERT OR IGNORE INTO historical_staffing
+                (day_of_week, workload_score, shift_length_hours, required_staff)
+            VALUES (?, ?, ?, ?)
+            """,
+            values,
+        )
+        imported += cursor.rowcount
+    database.commit()
+    return jsonify(
+        {
+            "imported_records": imported,
+            "skipped_duplicates": len(rows) - imported,
+            "total_rows": len(rows),
+        }
+    )
 
 
 @bp.get("/employees")
