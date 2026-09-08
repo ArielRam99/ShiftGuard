@@ -4,9 +4,6 @@ def test_dashboard_and_assets_are_available(client):
     assert response.status_code == 200
     assert response.content_type == "text/html; charset=utf-8"
     assert b"ShiftGuard" in response.data
-    assert b'id="roleSelect"' in response.data
-    assert b'id="departmentSelect"' in response.data
-    assert b"Any department" in response.data
     assert client.get("/static/dashboard.js").status_code == 200
 
 

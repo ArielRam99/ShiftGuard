@@ -7,75 +7,6 @@ from flask import current_app, g
 
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
-DEFAULT_ROLES = (
-    "Accountant",
-    "Administrative Assistant",
-    "Assistant",
-    "Billing Specialist",
-    "Care Coordinator",
-    "Cashier",
-    "Case Manager",
-    "Clinical Assistant",
-    "Clinical Manager",
-    "Customer Service Representative",
-    "Data Analyst",
-    "Dietitian",
-    "Dispatcher",
-    "Emergency Medical Technician",
-    "Facilities Coordinator",
-    "Finance Manager",
-    "Human Resources Specialist",
-    "IT Support Specialist",
-    "Laboratory Technician",
-    "Licensed Practical Nurse",
-    "Maintenance Technician",
-    "Medical Assistant",
-    "Medical Records Specialist",
-    "Nurse",
-    "Nurse Practitioner",
-    "Occupational Therapist",
-    "Operations Manager",
-    "Paramedic",
-    "Patient Care Technician",
-    "Pharmacist",
-    "Pharmacy Technician",
-    "Physical Therapist",
-    "Physician",
-    "Physician Assistant",
-    "Radiologic Technologist",
-    "Receptionist",
-    "Registered Nurse",
-    "Respiratory Therapist",
-    "Scheduler",
-    "Security Officer",
-    "Social Worker",
-    "Sonographer",
-    "Sterile Processing Technician",
-    "Supervisor",
-    "Surgical Technologist",
-    "Transporter",
-    "Unit Clerk",
-    "Warehouse Associate",
-    "Workforce Analyst",
-    "X-Ray Technician",
-)
-
-DEFAULT_DEPARTMENTS = (
-    "Administration",
-    "Clinical",
-    "Emergency",
-    "Facilities",
-    "Finance",
-    "General",
-    "Human Resources",
-    "Information Technology",
-    "Laboratory",
-    "Operations",
-    "Pharmacy",
-    "Radiology",
-    "Surgery",
-)
-
 
 def get_db():
     """Return one SQLite connection per Flask request/app context."""
@@ -98,7 +29,6 @@ def init_db():
     database = get_db()
     database.executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
     _migrate_existing_database(database)
-    _seed_reference_catalogs(database)
     database.commit()
 
 
@@ -170,29 +100,6 @@ def _migrate_existing_database(database):
                 constraint_summary = COALESCE(constraint_summary, '{}')
             """
         )
-
-
-def _seed_reference_catalogs(database):
-    database.executemany(
-        "INSERT OR IGNORE INTO roles (name) VALUES (?)",
-        [(name,) for name in DEFAULT_ROLES],
-    )
-    database.executemany(
-        "INSERT OR IGNORE INTO departments (name) VALUES (?)",
-        [(name,) for name in DEFAULT_DEPARTMENTS],
-    )
-    database.execute(
-        """
-        INSERT OR IGNORE INTO roles (name)
-        SELECT DISTINCT role FROM employees WHERE TRIM(role) <> ''
-        """
-    )
-    database.execute(
-        """
-        INSERT OR IGNORE INTO departments (name)
-        SELECT DISTINCT department FROM employees WHERE TRIM(department) <> ''
-        """
-    )
 
 
 def seed_demo_data():

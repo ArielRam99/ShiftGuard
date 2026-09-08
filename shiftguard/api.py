@@ -13,11 +13,6 @@ from .scheduling import generate_shift_recommendation, get_shift
 
 bp = Blueprint("api", __name__, url_prefix="/api")
 
-REFERENCE_CATALOGS = {
-    "roles": "role",
-    "departments": "department",
-}
-
 
 class APIError(Exception):
     def __init__(self, message, status_code=400, details=None):
@@ -174,62 +169,6 @@ def _preference(value):
     return value
 
 
-def _catalog_item(database, catalog, item_id):
-    singular = REFERENCE_CATALOGS[catalog]
-    row = database.execute(
-        f"SELECT id, name, active, created_at FROM {catalog} WHERE id = ?",
-        (item_id,),
-    ).fetchone()
-    if row is None:
-        raise APIError(f"{singular.title()} not found", 404)
-    return row
-
-
-def _catalog_name(database, catalog, value, field):
-    row = database.execute(
-        f"SELECT name FROM {catalog} WHERE LOWER(name) = LOWER(?) AND active = 1",
-        (value,),
-    ).fetchone()
-    if row is None:
-        raise APIError(f"'{field}' must match an active {REFERENCE_CATALOGS[catalog]}")
-    return row["name"]
-
-
-def _list_catalog(catalog):
-    rows = get_db().execute(
-        f"SELECT id, name, active, created_at FROM {catalog} ORDER BY name"
-    ).fetchall()
-    return jsonify({catalog: [dict(row) for row in rows]})
-
-
-def _create_catalog_item(catalog):
-    name = _required_text(_json_body(), "name")
-    database = get_db()
-    try:
-        cursor = database.execute(
-            f"INSERT INTO {catalog} (name) VALUES (?)", (name,)
-        )
-        database.commit()
-    except sqlite3.IntegrityError as error:
-        singular = REFERENCE_CATALOGS[catalog]
-        raise APIError(f"A {singular} with that name already exists", 409) from error
-    return jsonify(dict(_catalog_item(database, catalog, cursor.lastrowid))), 201
-
-
-def _set_catalog_item_active(catalog, item_id):
-    body = _json_body()
-    if set(body) != {"active"} or not isinstance(body["active"], bool):
-        raise APIError("Request must contain only boolean field 'active'")
-    database = get_db()
-    _catalog_item(database, catalog, item_id)
-    database.execute(
-        f"UPDATE {catalog} SET active = ? WHERE id = ?",
-        (int(body["active"]), item_id),
-    )
-    database.commit()
-    return jsonify(dict(_catalog_item(database, catalog, item_id)))
-
-
 @bp.get("/health")
 def health():
     database = get_db()
@@ -251,36 +190,6 @@ def model_status():
             "supported_strategies": ["auto", *SUPPORTED_MODELS],
         }
     )
-
-
-@bp.get("/roles")
-def list_roles():
-    return _list_catalog("roles")
-
-
-@bp.post("/roles")
-def create_role():
-    return _create_catalog_item("roles")
-
-
-@bp.patch("/roles/<int:role_id>")
-def set_role_active(role_id):
-    return _set_catalog_item_active("roles", role_id)
-
-
-@bp.get("/departments")
-def list_departments():
-    return _list_catalog("departments")
-
-
-@bp.post("/departments")
-def create_department():
-    return _create_catalog_item("departments")
-
-
-@bp.patch("/departments/<int:department_id>")
-def set_department_active(department_id):
-    return _set_catalog_item_active("departments", department_id)
 
 
 @bp.get("/model/comparison")
@@ -437,12 +346,12 @@ def get_employee(employee_id):
 def create_employee():
     body = _json_body()
     name = _required_text(body, "name")
-    requested_role = _required_text(body, "role")
+    role = _required_text(body, "role")
     max_hours = _number(
         body, "max_weekly_hours", minimum=1, maximum=168, default=40
     )
     hourly_rate = _number(body, "hourly_rate", minimum=0, default=0)
-    requested_department = _optional_text(body, "department") or "General"
+    department = _optional_text(body, "department") or "General"
     max_overtime_hours = _number(
         body, "max_overtime_hours", minimum=0, maximum=128, default=8
     )
@@ -454,10 +363,6 @@ def create_employee():
     )
 
     database = get_db()
-    role = _catalog_name(database, "roles", requested_role, "role")
-    department = _catalog_name(
-        database, "departments", requested_department, "department"
-    )
     try:
         cursor = database.execute(
             """
@@ -513,9 +418,7 @@ def update_employee(employee_id):
     if "name" in body:
         updates["name"] = _required_text(body, "name")
     if "role" in body:
-        updates["role"] = _catalog_name(
-            database, "roles", _required_text(body, "role"), "role"
-        )
+        updates["role"] = _required_text(body, "role")
     if "max_weekly_hours" in body:
         updates["max_weekly_hours"] = _number(
             body, "max_weekly_hours", minimum=1, maximum=168
@@ -523,12 +426,7 @@ def update_employee(employee_id):
     if "hourly_rate" in body:
         updates["hourly_rate"] = _number(body, "hourly_rate", minimum=0)
     if "department" in body:
-        updates["department"] = _catalog_name(
-            database,
-            "departments",
-            _required_text(body, "department"),
-            "department",
-        )
+        updates["department"] = _required_text(body, "department")
     if "max_overtime_hours" in body:
         updates["max_overtime_hours"] = _number(
             body, "max_overtime_hours", minimum=0, maximum=128
@@ -1041,21 +939,8 @@ def recommend_shift():
     start = datetime.strptime(start_time, "%H:%M")
     end = datetime.strptime(end_time, "%H:%M")
     duration_hours = (end - start).total_seconds() / 3600
-    database = get_db()
-    required_role = _catalog_name(
-        database,
-        "roles",
-        _required_text(body, "required_role"),
-        "required_role",
-    )
+    required_role = _required_text(body, "required_role")
     required_department = _optional_text(body, "required_department")
-    if required_department is not None:
-        required_department = _catalog_name(
-            database,
-            "departments",
-            required_department,
-            "required_department",
-        )
     required_skills = body.get("required_skills", [])
     if not isinstance(required_skills, list) or any(
         not isinstance(item, str) or not item.strip() for item in required_skills
@@ -1090,7 +975,7 @@ def recommend_shift():
         )
 
     recommendation = generate_shift_recommendation(
-        database,
+        get_db(),
         shift_date=shift_date,
         start_time=start_time,
         end_time=end_time,

@@ -96,8 +96,8 @@
                 <label><span class="label">Model method</span><select class="field" name="model_strategy"><option value="auto">Auto select</option><option value="random_forest">Random Forest</option><option value="gradient_boosting">Gradient Boosting</option><option value="linear_regression">Linear Regression</option></select></label>
                 <label><span class="label">Starts</span><input class="field" type="time" name="start_time" value="09:00" required></label>
                 <label><span class="label">Ends</span><input class="field" type="time" name="end_time" value="17:00" required></label>
-                <label><span class="label">Employee role</span><select id="roleSelect" class="field" name="required_role" required><option value="" disabled selected>Loading roles...</option></select></label>
-                <label><span class="label">Department</span><select id="departmentSelect" class="field" name="required_department"><option value="">Any department</option></select></label>
+                <label><span class="label">Employee role</span><input class="field" name="required_role" list="roleOptions" placeholder="Nurse" required><datalist id="roleOptions"></datalist></label>
+                <label><span class="label">Department</span><input class="field" name="required_department" list="departmentOptions" placeholder="Any department"><datalist id="departmentOptions"></datalist></label>
               </div>
               <label class="mt-4 block"><span class="label">Required skills</span><select id="skillSelect" class="field" name="required_skills" multiple size="3"><option disabled>Loading skills...</option></select><span class="mt-1 block text-xs text-black/45">Hold Ctrl to choose multiple skills.</span></label>
               <label class="mt-5 block"><span class="mb-2 flex justify-between text-sm font-semibold"><span>Workload score</span><output id="workloadOutput">60</output></span><input id="workloadInput" class="w-full accent-leaf" type="range" name="workload_score" min="0" max="100" value="60"></label>

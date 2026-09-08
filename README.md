@@ -198,19 +198,6 @@ The **Schedule** view predicts staffing and ranks eligible employees. Choose
 Auto, Random Forest, Gradient Boosting, or Linear Regression before generating
 a draft, then approve or reject it with a manager name.
 
-Shift requirements use managed role and department catalogs rather than free
-text. ShiftGuard preloads 50 common workforce roles and a starter department
-list; API administrators can add entries or deactivate entries that should no
-longer be available for new employees and shifts. Existing employee values are
-preserved and added to the catalogs during an upgrade.
-
-A role is required and determines the initial employee candidate pool. The
-department is optional: **Any department** considers every active employee with
-the selected role, while a specific department excludes role-matched employees
-assigned elsewhere. Department therefore changes recommendation eligibility;
-it is not a display-only field. The historical staffing CSV remains demand
-training data and does not define either catalog.
-
 The **Training data** view accepts UTF-8 CSV files with these exact columns:
 
 ```text

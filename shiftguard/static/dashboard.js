@@ -48,15 +48,15 @@ function initializeNavigation() {
 
 async function loadDashboard() {
   try {
-    const [health, status, roles, departments, skills, comparison] = await Promise.all([
-      api('/api/health'), api('/api/model/status'), api('/api/roles'),
-      api('/api/departments'), api('/api/skills'), api('/api/model/comparison')
+    const [health, status, employees, skills, comparison] = await Promise.all([
+      api('/api/health'), api('/api/model/status'), api('/api/employees?active=true'),
+      api('/api/skills'), api('/api/model/comparison')
     ]);
     element('serviceBadge').innerHTML = `<span class="size-2 rounded-full bg-leaf"></span>${health.status === 'ok' ? 'Online' : health.status}`;
     element('trainingCount').textContent = status.training_records.toLocaleString();
     element('activeModel').textContent = formatModel(status.strategy);
     state.comparison = comparison;
-    renderReferenceData(roles.roles, departments.departments, skills.skills);
+    renderReferenceData(employees.employees, skills.skills);
     renderModels(comparison);
   } catch (error) {
     element('serviceBadge').innerHTML = '<span class="size-2 rounded-full bg-coral"></span>Offline';
@@ -64,13 +64,10 @@ async function loadDashboard() {
   }
 }
 
-function renderReferenceData(roles, departments, skills) {
-  const activeRoles = roles.filter((item) => item.active);
-  const activeDepartments = departments.filter((item) => item.active);
-  element('roleSelect').innerHTML = activeRoles.length
-    ? `<option value="" disabled selected>Select a role</option>${activeRoles.map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`).join('')}`
-    : '<option value="" disabled selected>No active roles configured</option>';
-  element('departmentSelect').innerHTML = `<option value="">Any department</option>${activeDepartments.map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`).join('')}`;
+function renderReferenceData(employees, skills) {
+  const unique = (values) => [...new Set(values.filter(Boolean))].sort();
+  element('roleOptions').innerHTML = unique(employees.map((item) => item.role)).map((value) => `<option value="${escapeHtml(value)}"></option>`).join('');
+  element('departmentOptions').innerHTML = unique(employees.map((item) => item.department)).map((value) => `<option value="${escapeHtml(value)}"></option>`).join('');
   element('skillSelect').innerHTML = skills.length ? skills.map((skill) => `<option value="${escapeHtml(skill.name)}">${escapeHtml(skill.name)}</option>`).join('') : '<option disabled>No skills configured</option>';
 }
 
