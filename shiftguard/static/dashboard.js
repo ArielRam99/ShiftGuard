@@ -58,19 +58,38 @@ async function loadDashboard() {
     state.comparison = comparison;
     renderReferenceData(roles.roles, departments.departments);
     renderModels(comparison);
+    return true;
   } catch (error) {
     element('serviceBadge').innerHTML = '<span class="size-2 rounded-full bg-coral"></span>Offline';
     toast(error.message, 'error');
+    return false;
   }
 }
 
 function renderReferenceData(roles, departments) {
+  const selectedRole = element('roleSelect').value;
+  const selectedDepartment = element('departmentSelect').value;
   const activeRoles = roles.filter((item) => item.active);
   const activeDepartments = departments.filter((item) => item.active);
   element('roleSelect').innerHTML = activeRoles.length
     ? `<option value="" disabled selected>Select a role</option>${activeRoles.map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`).join('')}`
     : '<option value="" disabled selected>No active roles configured</option>';
   element('departmentSelect').innerHTML = `<option value="">Any department</option>${activeDepartments.map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`).join('')}`;
+  if (activeRoles.some((item) => item.name === selectedRole)) element('roleSelect').value = selectedRole;
+  if (activeDepartments.some((item) => item.name === selectedDepartment)) element('departmentSelect').value = selectedDepartment;
+}
+
+async function refreshDashboard() {
+  const button = element('refreshButton');
+  button.disabled = true;
+  button.querySelector('i')?.classList.add('animate-spin');
+  try {
+    const refreshed = await loadDashboard();
+    if (refreshed) toast('Dashboard refreshed');
+  } finally {
+    button.disabled = false;
+    button.querySelector('i')?.classList.remove('animate-spin');
+  }
 }
 
 function renderModels(comparison) {
@@ -222,7 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
     element('csvFile').dispatchEvent(new Event('change'));
   });
   document.querySelectorAll('[data-decision]').forEach((button) => button.addEventListener('click', () => decideShift(button.dataset.decision)));
-  element('refreshButton').addEventListener('click', loadDashboard);
+  element('refreshButton').addEventListener('click', refreshDashboard);
   lucide.createIcons();
   loadDashboard();
 });
