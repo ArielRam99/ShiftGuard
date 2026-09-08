@@ -85,6 +85,47 @@ def test_health_endpoint(client):
     assert response.get_json() == {"service": "ShiftGuard AI", "status": "ok"}
 
 
+def test_role_and_department_catalogs_control_scheduling_inputs(client):
+    roles = client.get("/api/roles")
+    departments = client.get("/api/departments")
+    assert roles.status_code == 200
+    assert len(roles.get_json()["roles"]) == 50
+    assert "Nurse" in {item["name"] for item in roles.get_json()["roles"]}
+    assert departments.status_code == 200
+    assert "Emergency" in {
+        item["name"] for item in departments.get_json()["departments"]
+    }
+
+    created = client.post("/api/roles", json={"name": "Custom Specialist"})
+    assert created.status_code == 201
+    role = created.get_json()
+    assert role["active"] == 1
+
+    employee_id = _create_employee(
+        client, "Catalog Employee", role="custom specialist"
+    )
+    employee = client.get(f"/api/employees/{employee_id}").get_json()
+    assert employee["role"] == "Custom Specialist"
+
+    disabled = client.patch(
+        f"/api/roles/{role['id']}", json={"active": False}
+    )
+    assert disabled.status_code == 200
+    rejected = client.post(
+        "/api/shifts/recommendations",
+        json={
+            "shift_date": "2026-09-01",
+            "start_time": "09:00",
+            "end_time": "17:00",
+            "required_role": "Custom Specialist",
+            "workload_score": 50,
+            "required_staff": 1,
+        },
+    )
+    assert rejected.status_code == 400
+    assert "active role" in rejected.get_json()["error"]
+
+
 def test_complete_manager_approval_workflow(client):
     employee_ids = [_create_employee(client, "Alex One"), _create_employee(client, "Alex Two")]
     for employee_id in employee_ids:

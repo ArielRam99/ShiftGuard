@@ -74,9 +74,15 @@ def test_openapi_operations_are_complete_and_references_resolve():
 
 def test_phase_b_contract_captures_constraints_and_workflows():
     document = _openapi_document()
-    assert document["info"]["version"] == "1.4.0"
+    assert document["info"]["version"] == "1.5.0"
     operations = _contract_operations(document)
     assert {
+        ("/api/roles", "GET"),
+        ("/api/roles", "POST"),
+        ("/api/roles/{role_id}", "PATCH"),
+        ("/api/departments", "GET"),
+        ("/api/departments", "POST"),
+        ("/api/departments/{department_id}", "PATCH"),
         ("/api/historical-staffing/import", "POST"),
         ("/api/skills", "GET"),
         ("/api/skills", "POST"),

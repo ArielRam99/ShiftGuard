@@ -105,8 +105,21 @@ def test_fresh_database_has_phase_b_tables(app):
             ).fetchall()
         }
     assert {
+        "roles",
+        "departments",
         "skills",
         "employee_skills",
         "time_off_requests",
         "shift_required_skills",
     }.issubset(tables)
+
+    with app.app_context():
+        roles = get_db().execute("SELECT name FROM roles").fetchall()
+        departments = get_db().execute("SELECT name FROM departments").fetchall()
+    assert len(roles) == 50
+    assert {row["name"] for row in departments} >= {
+        "Clinical",
+        "Emergency",
+        "General",
+        "Surgery",
+    }
