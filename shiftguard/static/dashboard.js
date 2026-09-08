@@ -48,15 +48,15 @@ function initializeNavigation() {
 
 async function loadDashboard() {
   try {
-    const [health, status, roles, departments, skills, comparison] = await Promise.all([
+    const [health, status, roles, departments, comparison] = await Promise.all([
       api('/api/health'), api('/api/model/status'), api('/api/roles'),
-      api('/api/departments'), api('/api/skills'), api('/api/model/comparison')
+      api('/api/departments'), api('/api/model/comparison')
     ]);
     element('serviceBadge').innerHTML = `<span class="size-2 rounded-full bg-leaf"></span>${health.status === 'ok' ? 'Online' : health.status}`;
     element('trainingCount').textContent = status.training_records.toLocaleString();
     element('activeModel').textContent = formatModel(status.strategy);
     state.comparison = comparison;
-    renderReferenceData(roles.roles, departments.departments, skills.skills);
+    renderReferenceData(roles.roles, departments.departments);
     renderModels(comparison);
   } catch (error) {
     element('serviceBadge').innerHTML = '<span class="size-2 rounded-full bg-coral"></span>Offline';
@@ -64,14 +64,13 @@ async function loadDashboard() {
   }
 }
 
-function renderReferenceData(roles, departments, skills) {
+function renderReferenceData(roles, departments) {
   const activeRoles = roles.filter((item) => item.active);
   const activeDepartments = departments.filter((item) => item.active);
   element('roleSelect').innerHTML = activeRoles.length
     ? `<option value="" disabled selected>Select a role</option>${activeRoles.map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`).join('')}`
     : '<option value="" disabled selected>No active roles configured</option>';
   element('departmentSelect').innerHTML = `<option value="">Any department</option>${activeDepartments.map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`).join('')}`;
-  element('skillSelect').innerHTML = skills.length ? skills.map((skill) => `<option value="${escapeHtml(skill.name)}">${escapeHtml(skill.name)}</option>`).join('') : '<option disabled>No skills configured</option>';
 }
 
 function renderModels(comparison) {
@@ -104,8 +103,7 @@ function schedulePayload(form) {
   const payload = {
     shift_date: data.get('shift_date'), start_time: data.get('start_time'), end_time: data.get('end_time'),
     required_role: data.get('required_role').trim(), workload_score: Number(data.get('workload_score')),
-    model_strategy: data.get('model_strategy'), allow_overtime: data.get('allow_overtime') === 'on',
-    required_skills: [...element('skillSelect').selectedOptions].map((option) => option.value)
+    model_strategy: data.get('model_strategy'), allow_overtime: data.get('allow_overtime') === 'on'
   };
   const department = data.get('required_department').trim();
   if (department) payload.required_department = department;

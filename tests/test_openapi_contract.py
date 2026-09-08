@@ -104,13 +104,11 @@ def test_phase_b_contract_captures_constraints_and_workflows():
         "max_consecutive_days",
     }.issubset(employee_properties)
     recommendation_properties = schemas["CreateRecommendationRequest"]["properties"]
-    assert {"required_department", "required_skills"}.issubset(
-        recommendation_properties
-    )
+    assert "required_department" in recommendation_properties
+    assert "required_skills" not in recommendation_properties
     shift_required = set(schemas["Shift"]["required"])
     assert {
         "required_department",
-        "required_skills",
         "constraint_summary",
         "constraint_warnings",
     }.issubset(shift_required)

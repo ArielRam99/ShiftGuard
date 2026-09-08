@@ -786,7 +786,6 @@ paths:
                   end_time: "17:00"
                   required_role: Nurse
                   required_department: Clinical
-                  required_skills: [Patient Care]
                   workload_score: 80
                   model_strategy: auto
               managerOverride:
@@ -1479,13 +1478,6 @@ components:
         required_department:
           type: string
           minLength: 1
-        required_skills:
-          type: array
-          maxItems: 20
-          uniqueItems: true
-          items:
-            type: string
-            minLength: 1
         workload_score:
           type: number
           minimum: 0
@@ -1528,7 +1520,6 @@ components:
         - duration_hours
         - required_role
         - required_department
-        - required_skills
         - workload_score
         - required_staff
         - model_source
@@ -1561,10 +1552,6 @@ components:
           type: string
         required_department:
           type: [string, "null"]
-        required_skills:
-          type: array
-          items:
-            type: string
         workload_score:
           type: number
           minimum: 0

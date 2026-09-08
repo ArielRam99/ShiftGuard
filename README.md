@@ -17,7 +17,7 @@ every generated schedule.
 - Persisted 95% operational staffing ranges for demand-spike planning
 - PDF and formatted Excel schedule and analytics exports
 - Documented rules-based fallback for a new installation
-- Department and skill-aware assignment matching
+- Department-aware assignment matching
 - Pending and approved time-off protection with a manager decision workflow
 - Configurable minimum-rest, consecutive-day, and weekly overtime ceilings
 - Workload-balancing ranking based on weekly utilization, recent approved
@@ -292,7 +292,7 @@ outside this first MVP and are rejected explicitly.
 
 Schedule-list filters are `date_from`, `date_to`, `required_role`,
 `required_department`, `status`, and `employee_id`. Recommendation requests
-may add `required_department` and a unique `required_skills` string array.
+may add `required_department`.
 Responses include a persisted `constraint_summary` and human-readable
 `constraint_warnings`. See `docs/openapi.yaml` for the authoritative request
 and response contract.

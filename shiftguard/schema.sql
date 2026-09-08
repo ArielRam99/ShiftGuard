@@ -113,14 +113,6 @@ CREATE TABLE IF NOT EXISTS shifts (
     CHECK (start_time < end_time)
 );
 
-CREATE TABLE IF NOT EXISTS shift_required_skills (
-    shift_id INTEGER NOT NULL,
-    skill_id INTEGER NOT NULL,
-    FOREIGN KEY (shift_id) REFERENCES shifts(id) ON DELETE CASCADE,
-    FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE,
-    PRIMARY KEY (shift_id, skill_id)
-);
-
 CREATE TABLE IF NOT EXISTS shift_assignments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     shift_id INTEGER NOT NULL,

@@ -1056,16 +1056,6 @@ def recommend_shift():
             required_department,
             "required_department",
         )
-    required_skills = body.get("required_skills", [])
-    if not isinstance(required_skills, list) or any(
-        not isinstance(item, str) or not item.strip() for item in required_skills
-    ):
-        raise APIError("'required_skills' must be a list of non-empty skill names")
-    required_skills = [item.strip() for item in required_skills]
-    if len({item.casefold() for item in required_skills}) != len(required_skills):
-        raise APIError("'required_skills' must not contain duplicates")
-    if len(required_skills) > 20:
-        raise APIError("'required_skills' must contain at most 20 skills")
     workload_score = _number(
         body, "workload_score", minimum=0, maximum=100
     )
@@ -1101,7 +1091,6 @@ def recommend_shift():
         allow_overtime=allow_overtime,
         model_strategy=model_strategy,
         required_department=required_department,
-        required_skills=required_skills,
     )
     return jsonify(recommendation), 201
 

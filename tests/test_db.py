@@ -110,7 +110,6 @@ def test_fresh_database_has_phase_b_tables(app):
         "skills",
         "employee_skills",
         "time_off_requests",
-        "shift_required_skills",
     }.issubset(tables)
 
     with app.app_context():
