@@ -145,6 +145,52 @@ The database is created at `instance/shiftguard.sqlite`. The Flask server and
 tests run as separate commands because the server occupies its terminal until
 it is stopped.
 
+## Windows executable
+
+The CI workflow builds a Windows distribution after the test job succeeds. To
+download it, open a successful **ShiftGuard CI** run in the repository's
+**Actions** tab and select the **ShiftGuard-Windows** artifact. Artifacts are
+retained for 30 days.
+
+Extract the downloaded ZIP, keep all extracted files together, and run
+`ShiftGuard.exe`. ShiftGuard starts a local server at
+`http://127.0.0.1:5000` and opens the dashboard in the default browser. Closing
+the ShiftGuard console stops the server. Application data persists at
+`%LOCALAPPDATA%\ShiftGuard\shiftguard.sqlite`.
+
+The distribution uses PyInstaller's one-folder layout because scientific
+Python dependencies require supporting DLLs alongside the executable. To build
+the same artifact locally on Windows:
+
+```powershell
+python -m pip install -r requirements-build.txt
+python -m PyInstaller --clean --noconfirm shiftguard.spec
+```
+
+The runnable distribution is created at `dist\ShiftGuard`, with the executable
+at `dist\ShiftGuard\ShiftGuard.exe`. The application still requires internet
+access for the dashboard's externally hosted Tailwind CSS, Lucide icons, and
+display fonts.
+
+### Publish a release
+
+After a commit has passed review and has been merged into `main`, create and
+push a semantic-version tag from that commit:
+
+```powershell
+git switch main
+git pull --ff-only
+git tag -a v1.0.0 -m "ShiftGuard v1.0.0"
+git push origin v1.0.0
+```
+
+The **ShiftGuard Release** workflow retests the tagged source, builds and
+smoke-tests the Windows distribution, and publishes a versioned ZIP with a
+SHA-256 checksum on the repository's **Releases** page. Release tags must match
+`vMAJOR.MINOR.PATCH`, such as `v1.0.0`. Use the temporary **ShiftGuard-Windows**
+artifact from pull-request or `main` CI runs for review; use GitHub Release
+assets for user distribution.
+
 ## Use the dashboard
 
 Open `http://127.0.0.1:5000` while the Flask development server is running.

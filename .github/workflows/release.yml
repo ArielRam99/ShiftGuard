@@ -1,44 +1,31 @@
-name: ShiftGuard CI
+name: ShiftGuard Release
 
 on:
   push:
-    branches: [main]
-  pull_request:
-  workflow_dispatch:
+    tags:
+      - "v*"
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Install dependencies
-        run: python -m pip install -r requirements.txt
-
-      - name: Verify application initialization
-        run: python -c "import app; print('App imported and database initialized successfully!')"
-
-      - name: Run tests
-        run: python -m pytest -v
-
-  build-windows:
-    needs: build-and-test
+  release-windows:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout tagged source
         uses: actions/checkout@v4
+
+      - name: Validate release tag
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_name }}" -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "Release tags must use semantic versioning, for example v1.0.0"
+          }
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -52,7 +39,10 @@ jobs:
       - name: Install build dependencies
         run: python -m pip install -r requirements-build.txt
 
-      - name: Build Windows executable
+      - name: Test tagged source
+        run: python -m pytest -v
+
+      - name: Build Windows distribution
         run: python -m PyInstaller --clean --noconfirm shiftguard.spec
 
       - name: Smoke test Windows executable
@@ -84,11 +74,25 @@ jobs:
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
           }
 
-      - name: Upload Windows executable
-        uses: actions/upload-artifact@v4
-        with:
-          name: ShiftGuard-Windows
-          path: dist/ShiftGuard/
-          if-no-files-found: error
-          retention-days: 30
+      - name: Package release files
+        id: package
+        shell: pwsh
+        run: |
+          $archive = "ShiftGuard-Windows-${{ github.ref_name }}.zip"
+          Compress-Archive -Path ".\dist\ShiftGuard" -DestinationPath ".\dist\$archive"
+          $hash = (Get-FileHash ".\dist\$archive" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $archive" | Set-Content ".\dist\$archive.sha256" -Encoding ascii
+          "archive=$archive" >> $env:GITHUB_OUTPUT
 
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $archive = "${{ steps.package.outputs.archive }}"
+          gh release create "${{ github.ref_name }}" `
+            ".\dist\$archive" `
+            ".\dist\$archive.sha256" `
+            --verify-tag `
+            --title "ShiftGuard ${{ github.ref_name }}" `
+            --generate-notes
