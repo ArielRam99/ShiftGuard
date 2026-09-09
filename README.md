@@ -178,6 +178,34 @@ at `dist\ShiftGuard\ShiftGuard.exe`. The application still requires internet
 access for the dashboard's externally hosted Tailwind CSS, Lucide icons, and
 display fonts.
 
+PyInstaller packing is disabled because packed Python bootloaders can trigger
+antivirus heuristics. Local or pull-request builds are unsigned and Windows may
+still warn about them. Do not bypass a malware detection for an unverified
+download; use a signed release and verify its published SHA-256 checksum.
+
+### Configure Windows signing
+
+Production artifacts use Authenticode when these GitHub Actions repository
+secrets are configured:
+
+- `WINDOWS_SIGNING_CERTIFICATE_BASE64`: base64-encoded contents of a trusted
+  code-signing `.pfx` certificate
+- `WINDOWS_SIGNING_CERTIFICATE_PASSWORD`: the `.pfx` password
+
+Generate the certificate secret value locally without committing the
+certificate:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\certificate.pfx")) |
+    Set-Clipboard
+```
+
+Add the copied value and password under **Settings > Secrets and variables >
+Actions**. Main-branch CI signs when these secrets are present and verifies the
+result before upload. Release builds require both secrets and fail instead of
+publishing an unsigned executable. Pull-request workflows do not receive the
+signing certificate and therefore produce unsigned review artifacts.
+
 ### Publish a release
 
 After a commit has passed review and has been merged into `main`, create and
@@ -190,12 +218,12 @@ git tag -a v1.0.0 -m "ShiftGuard v1.0.0"
 git push origin v1.0.0
 ```
 
-The **ShiftGuard Release** workflow retests the tagged source, builds and
-smoke-tests the Windows distribution, and publishes a versioned ZIP with a
-SHA-256 checksum on the repository's **Releases** page. Release tags must match
-`vMAJOR.MINOR.PATCH`, such as `v1.0.0`. Use the temporary **ShiftGuard-Windows**
-artifact from pull-request or `main` CI runs for review; use GitHub Release
-assets for user distribution.
+The **ShiftGuard Release** workflow retests the tagged source, builds, signs,
+verifies, and smoke-tests the Windows distribution, then publishes a versioned
+ZIP with a SHA-256 checksum on the repository's **Releases** page. Release tags
+must match `vMAJOR.MINOR.PATCH`, such as `v1.0.0`. Use temporary unsigned
+pull-request artifacts only for review; use signed GitHub Release assets for
+user distribution.
 
 ## Use the dashboard
 
