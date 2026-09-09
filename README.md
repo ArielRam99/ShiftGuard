@@ -160,6 +160,10 @@ Extract the downloaded ZIP, keep all extracted files together, and run
 the ShiftGuard console stops the server. Application data persists at
 `%LOCALAPPDATA%\ShiftGuard\shiftguard.sqlite`.
 
+On startup, the packaged application loads the 200 synthetic demo employees,
+availability, and training history when its database contains no employees.
+Existing employee data is never replaced or supplemented automatically.
+
 The distribution uses PyInstaller's one-folder layout because scientific
 Python dependencies require supporting DLLs alongside the executable. To build
 the same artifact locally on Windows:
