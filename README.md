@@ -82,8 +82,10 @@ packages and the dashboard's Tailwind CSS, Lucide icons, and display fonts.
   python -m flask --app app seed-demo
   ```
 
-  The expected output is `Loaded ShiftGuard demo data.` Running this command
-  again is safe because existing seed records are ignored.
+  The expected output is `Loaded ShiftGuard demo data.` The command creates
+  200 synthetic employees, with four employees assigned to each of the 50
+  predefined roles, plus recurring availability and historical staffing data.
+  Running it again is safe because existing seed records are ignored.
 
 5. Start the application:
 
