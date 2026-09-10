@@ -17,7 +17,7 @@ every generated schedule.
 - Persisted 95% operational staffing ranges for demand-spike planning
 - PDF and formatted Excel schedule and analytics exports
 - Documented rules-based fallback for a new installation
-- Department and skill-aware assignment matching
+- Department-aware assignment matching
 - Pending and approved time-off protection with a manager decision workflow
 - Configurable minimum-rest, consecutive-day, and weekly overtime ceilings
 - Workload-balancing ranking based on weekly utilization, recent approved
@@ -82,8 +82,10 @@ packages and the dashboard's Tailwind CSS, Lucide icons, and display fonts.
   python -m flask --app app seed-demo
   ```
 
-  The expected output is `Loaded ShiftGuard demo data.` Running this command
-  again is safe because existing seed records are ignored.
+  The expected output is `Loaded ShiftGuard demo data.` The command creates
+  200 synthetic employees, with four employees assigned to each of the 50
+  predefined roles, plus recurring availability and historical staffing data.
+  Running it again is safe because existing seed records are ignored.
 
 5. Start the application:
 
@@ -158,6 +160,10 @@ Extract the downloaded ZIP, keep all extracted files together, and run
 the ShiftGuard console stops the server. Application data persists at
 `%LOCALAPPDATA%\ShiftGuard\shiftguard.sqlite`.
 
+On startup, the packaged application loads the 200 synthetic demo employees,
+availability, and training history when its database contains no employees.
+Existing employee data is never replaced or supplemented automatically.
+
 The distribution uses PyInstaller's one-folder layout because scientific
 Python dependencies require supporting DLLs alongside the executable. To build
 the same artifact locally on Windows:
@@ -172,6 +178,34 @@ at `dist\ShiftGuard\ShiftGuard.exe`. The application still requires internet
 access for the dashboard's externally hosted Tailwind CSS, Lucide icons, and
 display fonts.
 
+PyInstaller packing is disabled because packed Python bootloaders can trigger
+antivirus heuristics. Local or pull-request builds are unsigned and Windows may
+still warn about them. Do not bypass a malware detection for an unverified
+download; use a signed release and verify its published SHA-256 checksum.
+
+### Configure Windows signing
+
+Production artifacts use Authenticode when these GitHub Actions repository
+secrets are configured:
+
+- `WINDOWS_SIGNING_CERTIFICATE_BASE64`: base64-encoded contents of a trusted
+  code-signing `.pfx` certificate
+- `WINDOWS_SIGNING_CERTIFICATE_PASSWORD`: the `.pfx` password
+
+Generate the certificate secret value locally without committing the
+certificate:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\certificate.pfx")) |
+    Set-Clipboard
+```
+
+Add the copied value and password under **Settings > Secrets and variables >
+Actions**. Main-branch CI signs when these secrets are present and verifies the
+result before upload. Release builds require both secrets and fail instead of
+publishing an unsigned executable. Pull-request workflows do not receive the
+signing certificate and therefore produce unsigned review artifacts.
+
 ### Publish a release
 
 After a commit has passed review and has been merged into `main`, create and
@@ -184,12 +218,12 @@ git tag -a v1.0.0 -m "ShiftGuard v1.0.0"
 git push origin v1.0.0
 ```
 
-The **ShiftGuard Release** workflow retests the tagged source, builds and
-smoke-tests the Windows distribution, and publishes a versioned ZIP with a
-SHA-256 checksum on the repository's **Releases** page. Release tags must match
-`vMAJOR.MINOR.PATCH`, such as `v1.0.0`. Use the temporary **ShiftGuard-Windows**
-artifact from pull-request or `main` CI runs for review; use GitHub Release
-assets for user distribution.
+The **ShiftGuard Release** workflow retests the tagged source, builds, signs,
+verifies, and smoke-tests the Windows distribution, then publishes a versioned
+ZIP with a SHA-256 checksum on the repository's **Releases** page. Release tags
+must match `vMAJOR.MINOR.PATCH`, such as `v1.0.0`. Use temporary unsigned
+pull-request artifacts only for review; use signed GitHub Release assets for
+user distribution.
 
 ## Use the dashboard
 
@@ -197,6 +231,19 @@ Open `http://127.0.0.1:5000` while the Flask development server is running.
 The **Schedule** view predicts staffing and ranks eligible employees. Choose
 Auto, Random Forest, Gradient Boosting, or Linear Regression before generating
 a draft, then approve or reject it with a manager name.
+
+Shift requirements use managed role and department catalogs rather than free
+text. ShiftGuard preloads 50 common workforce roles and a starter department
+list; API administrators can add entries or deactivate entries that should no
+longer be available for new employees and shifts. Existing employee values are
+preserved and added to the catalogs during an upgrade.
+
+A role is required and determines the initial employee candidate pool. The
+department is optional: **Any department** considers every active employee with
+the selected role, while a specific department excludes role-matched employees
+assigned elsewhere. Department therefore changes recommendation eligibility;
+it is not a display-only field. The historical staffing CSV remains demand
+training data and does not define either catalog.
 
 The **Training data** view accepts UTF-8 CSV files with these exact columns:
 
@@ -279,7 +326,7 @@ outside this first MVP and are rejected explicitly.
 
 Schedule-list filters are `date_from`, `date_to`, `required_role`,
 `required_department`, `status`, and `employee_id`. Recommendation requests
-may add `required_department` and a unique `required_skills` string array.
+may add `required_department`.
 Responses include a persisted `constraint_summary` and human-readable
 `constraint_warnings`. See `docs/openapi.yaml` for the authoritative request
 and response contract.

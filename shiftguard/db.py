@@ -7,6 +7,111 @@ from flask import current_app, g
 
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
+DEFAULT_ROLES = (
+    "Accountant",
+    "Administrative Assistant",
+    "Assistant",
+    "Billing Specialist",
+    "Care Coordinator",
+    "Cashier",
+    "Case Manager",
+    "Clinical Assistant",
+    "Clinical Manager",
+    "Customer Service Representative",
+    "Data Analyst",
+    "Dietitian",
+    "Dispatcher",
+    "Emergency Medical Technician",
+    "Facilities Coordinator",
+    "Finance Manager",
+    "Human Resources Specialist",
+    "IT Support Specialist",
+    "Laboratory Technician",
+    "Licensed Practical Nurse",
+    "Maintenance Technician",
+    "Medical Assistant",
+    "Medical Records Specialist",
+    "Nurse",
+    "Nurse Practitioner",
+    "Occupational Therapist",
+    "Operations Manager",
+    "Paramedic",
+    "Patient Care Technician",
+    "Pharmacist",
+    "Pharmacy Technician",
+    "Physical Therapist",
+    "Physician",
+    "Physician Assistant",
+    "Radiologic Technologist",
+    "Receptionist",
+    "Registered Nurse",
+    "Respiratory Therapist",
+    "Scheduler",
+    "Security Officer",
+    "Social Worker",
+    "Sonographer",
+    "Sterile Processing Technician",
+    "Supervisor",
+    "Surgical Technologist",
+    "Transporter",
+    "Unit Clerk",
+    "Warehouse Associate",
+    "Workforce Analyst",
+    "X-Ray Technician",
+)
+
+DEFAULT_DEPARTMENTS = (
+    "Administration",
+    "Clinical",
+    "Emergency",
+    "Facilities",
+    "Finance",
+    "General",
+    "Human Resources",
+    "Information Technology",
+    "Laboratory",
+    "Operations",
+    "Pharmacy",
+    "Radiology",
+    "Surgery",
+)
+
+DEMO_FIRST_NAMES = (
+    "Alex",
+    "Avery",
+    "Cameron",
+    "Casey",
+    "Devon",
+    "Drew",
+    "Emerson",
+    "Finley",
+    "Harper",
+    "Jamie",
+    "Jordan",
+    "Kai",
+    "Logan",
+    "Morgan",
+    "Parker",
+    "Quinn",
+    "Reese",
+    "Riley",
+    "Rowan",
+    "Taylor",
+)
+
+DEMO_LAST_NAMES = (
+    "Bennett",
+    "Chen",
+    "Diaz",
+    "Foster",
+    "Gupta",
+    "Johnson",
+    "Kim",
+    "Lee",
+    "Martinez",
+    "Patel",
+)
+
 
 def get_db():
     """Return one SQLite connection per Flask request/app context."""
@@ -29,6 +134,7 @@ def init_db():
     database = get_db()
     database.executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
     _migrate_existing_database(database)
+    _seed_reference_catalogs(database)
     database.commit()
 
 
@@ -102,15 +208,114 @@ def _migrate_existing_database(database):
         )
 
 
-def seed_demo_data():
-    """Insert deterministic, non-sensitive demo data without duplicating it."""
-    database = get_db()
-    employees = [
+def _seed_reference_catalogs(database):
+    database.executemany(
+        "INSERT OR IGNORE INTO roles (name) VALUES (?)",
+        [(name,) for name in DEFAULT_ROLES],
+    )
+    database.executemany(
+        "INSERT OR IGNORE INTO departments (name) VALUES (?)",
+        [(name,) for name in DEFAULT_DEPARTMENTS],
+    )
+    database.execute(
+        """
+        INSERT OR IGNORE INTO roles (name)
+        SELECT DISTINCT role FROM employees WHERE TRIM(role) <> ''
+        """
+    )
+    database.execute(
+        """
+        INSERT OR IGNORE INTO departments (name)
+        SELECT DISTINCT department FROM employees WHERE TRIM(department) <> ''
+        """
+    )
+
+
+def _department_for_role(role):
+    if role in {"Accountant", "Billing Specialist", "Finance Manager"}:
+        return "Finance"
+    if role == "Human Resources Specialist":
+        return "Human Resources"
+    if role in {"IT Support Specialist", "Data Analyst"}:
+        return "Information Technology"
+    if role in {"Facilities Coordinator", "Maintenance Technician"}:
+        return "Facilities"
+    if role in {"Pharmacist", "Pharmacy Technician"}:
+        return "Pharmacy"
+    if role in {"Radiologic Technologist", "Sonographer", "X-Ray Technician"}:
+        return "Radiology"
+    if role in {"Sterile Processing Technician", "Surgical Technologist"}:
+        return "Surgery"
+    if role == "Laboratory Technician":
+        return "Laboratory"
+    if role in {
+        "Dispatcher",
+        "Emergency Medical Technician",
+        "Paramedic",
+        "Security Officer",
+    }:
+        return "Emergency"
+    if role in {
+        "Operations Manager",
+        "Scheduler",
+        "Supervisor",
+        "Transporter",
+        "Warehouse Associate",
+        "Workforce Analyst",
+    }:
+        return "Operations"
+    if role in {
+        "Administrative Assistant",
+        "Cashier",
+        "Customer Service Representative",
+        "Medical Records Specialist",
+        "Receptionist",
+        "Unit Clerk",
+    }:
+        return "Administration"
+    return "Clinical"
+
+
+def _demo_employees():
+    legacy_employees = [
         ("Jordan Lee", "Nurse", 40, 32, "Clinical"),
         ("Casey Smith", "Nurse", 36, 30, "Clinical"),
         ("Taylor Kim", "Nurse", 32, 34, "Clinical"),
         ("Morgan Diaz", "Assistant", 40, 22, "Clinical"),
     ]
+    legacy_names = {employee[0] for employee in legacy_employees}
+    names = [
+        f"{first_name} {last_name}"
+        for first_name in DEMO_FIRST_NAMES
+        for last_name in DEMO_LAST_NAMES
+        if f"{first_name} {last_name}" not in legacy_names
+    ]
+    legacy_role_counts = {
+        role: sum(employee[1] == role for employee in legacy_employees)
+        for role in DEFAULT_ROLES
+    }
+    remaining_roles = [
+        role
+        for role in DEFAULT_ROLES
+        for _ in range(4 - legacy_role_counts[role])
+    ]
+    generated_employees = [
+        (
+            name,
+            role,
+            (32, 36, 40)[index % 3],
+            20 + (index % 16),
+            _department_for_role(role),
+        )
+        for index, (name, role) in enumerate(zip(names, remaining_roles))
+    ]
+    return [*legacy_employees, *generated_employees]
+
+
+def seed_demo_data():
+    """Insert deterministic, non-sensitive demo data without duplicating it."""
+    database = get_db()
+    employees = _demo_employees()
     database.executemany(
         """
         INSERT OR IGNORE INTO employees
@@ -120,8 +325,14 @@ def seed_demo_data():
         employees,
     )
 
+    employee_names = [employee[0] for employee in employees]
+    placeholders = ",".join("?" for _ in employee_names)
     employee_ids = [
-        row["id"] for row in database.execute("SELECT id FROM employees").fetchall()
+        row["id"]
+        for row in database.execute(
+            f"SELECT id FROM employees WHERE name IN ({placeholders})",
+            employee_names,
+        ).fetchall()
     ]
     availability_rows = [
         (employee_id, day, "06:00", "22:00")

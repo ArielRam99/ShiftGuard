@@ -55,6 +55,57 @@ jobs:
       - name: Build Windows executable
         run: python -m PyInstaller --clean --noconfirm shiftguard.spec
 
+      - name: Sign Windows executable
+        id: sign
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          SIGNING_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_BASE64 }}
+          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_CERTIFICATE_BASE64)) {
+            Write-Warning "Windows signing certificate is not configured; artifact will be unsigned"
+            "signed=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_CERTIFICATE_PASSWORD)) {
+            throw "WINDOWS_SIGNING_CERTIFICATE_PASSWORD is not configured"
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP "shiftguard-signing.pfx"
+          try {
+            [IO.File]::WriteAllBytes(
+              $certificatePath,
+              [Convert]::FromBase64String($env:SIGNING_CERTIFICATE_BASE64)
+            )
+            $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+            if (-not $signTool) {
+              throw "signtool.exe was not found"
+            }
+            & $signTool.FullName sign /fd SHA256 /td SHA256 `
+              /tr http://timestamp.digicert.com `
+              /f $certificatePath /p $env:SIGNING_CERTIFICATE_PASSWORD `
+              ".\dist\ShiftGuard\ShiftGuard.exe"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Authenticode signing failed"
+            }
+            "signed=true" >> $env:GITHUB_OUTPUT
+          }
+          finally {
+            Remove-Item $certificatePath -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Verify Windows executable signature
+        if: steps.sign.outputs.signed == 'true'
+        shell: pwsh
+        run: |
+          $signature = Get-AuthenticodeSignature ".\dist\ShiftGuard\ShiftGuard.exe"
+          if ($signature.Status -ne "Valid") {
+            throw "Invalid executable signature: $($signature.StatusMessage)"
+          }
+          Write-Output "Signed by $($signature.SignerCertificate.Subject)"
+
       - name: Smoke test Windows executable
         shell: pwsh
         env:

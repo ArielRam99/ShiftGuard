@@ -73,7 +73,7 @@
           <div><p class="text-xs font-bold uppercase text-leaf">Workforce operations</p><h1 id="pageTitle" class="font-display text-3xl">Build a safe shift plan</h1></div>
           <div class="hidden items-center gap-2 sm:flex">
             <a href="/api/reports/schedules.xlsx" class="flex items-center gap-2 rounded-md border border-black/15 bg-white px-3 py-2 text-sm font-semibold hover:border-leaf"><i data-lucide="download" class="size-4"></i>Schedules</a>
-            <button id="refreshButton" class="grid size-10 place-items-center rounded-md border border-black/15 bg-white hover:border-leaf" title="Refresh dashboard"><i data-lucide="refresh-cw" class="size-4"></i></button>
+            <button id="refreshButton" type="button" class="grid size-10 place-items-center rounded-md border border-black/15 bg-white hover:border-leaf disabled:cursor-wait disabled:opacity-60" title="Refresh dashboard" aria-label="Refresh dashboard"><i data-lucide="refresh-cw" class="size-4"></i></button>
           </div>
         </div>
       </header>
@@ -96,10 +96,9 @@
                 <label><span class="label">Model method</span><select class="field" name="model_strategy"><option value="auto">Auto select</option><option value="random_forest">Random Forest</option><option value="gradient_boosting">Gradient Boosting</option><option value="linear_regression">Linear Regression</option></select></label>
                 <label><span class="label">Starts</span><input class="field" type="time" name="start_time" value="09:00" required></label>
                 <label><span class="label">Ends</span><input class="field" type="time" name="end_time" value="17:00" required></label>
-                <label><span class="label">Employee role</span><input class="field" name="required_role" list="roleOptions" placeholder="Nurse" required><datalist id="roleOptions"></datalist></label>
-                <label><span class="label">Department</span><input class="field" name="required_department" list="departmentOptions" placeholder="Any department"><datalist id="departmentOptions"></datalist></label>
+                <label><span class="label">Employee role</span><select id="roleSelect" class="field" name="required_role" required><option value="" disabled selected>Loading roles...</option></select></label>
+                <label><span class="label">Department</span><select id="departmentSelect" class="field" name="required_department"><option value="">Any department</option></select></label>
               </div>
-              <label class="mt-4 block"><span class="label">Required skills</span><select id="skillSelect" class="field" name="required_skills" multiple size="3"><option disabled>Loading skills...</option></select><span class="mt-1 block text-xs text-black/45">Hold Ctrl to choose multiple skills.</span></label>
               <label class="mt-5 block"><span class="mb-2 flex justify-between text-sm font-semibold"><span>Workload score</span><output id="workloadOutput">60</output></span><input id="workloadInput" class="w-full accent-leaf" type="range" name="workload_score" min="0" max="100" value="60"></label>
               <div class="mt-5 grid gap-3 sm:grid-cols-2">
                 <label class="flex cursor-pointer items-center gap-3 rounded-md border border-black/10 p-3"><input id="overrideToggle" type="checkbox" class="size-4 accent-leaf"><span class="text-sm font-semibold">Override staffing</span></label>
