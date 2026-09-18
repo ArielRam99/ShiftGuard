@@ -4,6 +4,8 @@ from flask import Flask, render_template, send_from_directory
 
 from . import api, db
 
+from .logging_config import configure_logging
+
 
 def create_app(test_config=None):
     """Create and configure the ShiftGuard Flask application."""
@@ -17,6 +19,8 @@ def create_app(test_config=None):
         app.config.update(test_config)
 
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
+
+    configure_logging(app)
 
     db.init_app(app)
     app.register_blueprint(api.bp)
