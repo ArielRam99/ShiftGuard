@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ShiftGuard AI API
-  version: 1.4.0
+  version: 1.5.0
   summary: Integration contract for the ShiftGuard AI scheduling MVP
   description: |
     The ShiftGuard AI API manages employees, preferred availability, skills,
@@ -23,6 +23,8 @@ tags:
     description: Historical staffing data used to train prediction models
   - name: Employees
     description: Employee, availability, skill, and constraint management
+  - name: Reference Data
+    description: Managed role and department catalogs used by employees and schedules
   - name: Time Off
     description: Employee requests and manager decisions
   - name: Scheduling
@@ -115,6 +117,130 @@ paths:
                 $ref: "#/components/schemas/HistoricalStaffingImportResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+  /api/roles:
+    get:
+      tags: [Reference Data]
+      operationId: listRoles
+      summary: List the role catalog
+      responses:
+        "200":
+          description: Roles ordered by name, including inactive entries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoleListResponse"
+    post:
+      tags: [Reference Data]
+      operationId: createRole
+      summary: Add an active role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReferenceItemRequest"
+      responses:
+        "201":
+          description: Role created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferenceItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: A case-insensitive role with that name already exists.
+  /api/roles/{role_id}:
+    parameters:
+      - name: role_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+    patch:
+      tags: [Reference Data]
+      operationId: setRoleActive
+      summary: Activate or deactivate a role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetReferenceItemActiveRequest"
+      responses:
+        "200":
+          description: Updated role.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferenceItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Role not found.
+  /api/departments:
+    get:
+      tags: [Reference Data]
+      operationId: listDepartments
+      summary: List the department catalog
+      responses:
+        "200":
+          description: Departments ordered by name, including inactive entries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepartmentListResponse"
+    post:
+      tags: [Reference Data]
+      operationId: createDepartment
+      summary: Add an active department
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReferenceItemRequest"
+      responses:
+        "201":
+          description: Department created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferenceItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: A case-insensitive department with that name already exists.
+  /api/departments/{department_id}:
+    parameters:
+      - name: department_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          minimum: 1
+    patch:
+      tags: [Reference Data]
+      operationId: setDepartmentActive
+      summary: Activate or deactivate a department
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetReferenceItemActiveRequest"
+      responses:
+        "200":
+          description: Updated department.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferenceItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          description: Department not found.
   /api/employees:
     get:
       tags: [Employees]
@@ -660,7 +786,6 @@ paths:
                   end_time: "17:00"
                   required_role: Nurse
                   required_department: Clinical
-                  required_skills: [Patient Care]
                   workload_score: 80
                   model_strategy: auto
               managerOverride:
@@ -982,7 +1107,7 @@ components:
         role:
           type: string
           minLength: 1
-          description: Role matched case-insensitively during scheduling.
+          description: Name of an active role from the role catalog.
         max_weekly_hours:
           type: number
           minimum: 1
@@ -996,6 +1121,7 @@ components:
           type: string
           minLength: 1
           default: General
+          description: Name of an active department from the department catalog.
         max_overtime_hours:
           type: number
           minimum: 0
@@ -1157,6 +1283,50 @@ components:
         name:
           type: string
           minLength: 1
+    CreateReferenceItemRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+    SetReferenceItemActiveRequest:
+      type: object
+      required: [active]
+      additionalProperties: false
+      properties:
+        active:
+          type: boolean
+    ReferenceItem:
+      type: object
+      required: [id, name, active, created_at]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+        active:
+          type: integer
+          enum: [0, 1]
+        created_at:
+          type: string
+    RoleListResponse:
+      type: object
+      required: [roles]
+      properties:
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReferenceItem"
+    DepartmentListResponse:
+      type: object
+      required: [departments]
+      properties:
+        departments:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReferenceItem"
     Skill:
       type: object
       required: [id, name, created_at]
@@ -1308,13 +1478,6 @@ components:
         required_department:
           type: string
           minLength: 1
-        required_skills:
-          type: array
-          maxItems: 20
-          uniqueItems: true
-          items:
-            type: string
-            minLength: 1
         workload_score:
           type: number
           minimum: 0
@@ -1357,7 +1520,6 @@ components:
         - duration_hours
         - required_role
         - required_department
-        - required_skills
         - workload_score
         - required_staff
         - model_source
@@ -1390,10 +1552,6 @@ components:
           type: string
         required_department:
           type: [string, "null"]
-        required_skills:
-          type: array
-          items:
-            type: string
         workload_score:
           type: number
           minimum: 0

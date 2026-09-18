@@ -48,27 +48,48 @@ function initializeNavigation() {
 
 async function loadDashboard() {
   try {
-    const [health, status, employees, skills, comparison] = await Promise.all([
-      api('/api/health'), api('/api/model/status'), api('/api/employees?active=true'),
-      api('/api/skills'), api('/api/model/comparison')
+    const [health, status, roles, departments, comparison] = await Promise.all([
+      api('/api/health'), api('/api/model/status'), api('/api/roles'),
+      api('/api/departments'), api('/api/model/comparison')
     ]);
     element('serviceBadge').innerHTML = `<span class="size-2 rounded-full bg-leaf"></span>${health.status === 'ok' ? 'Online' : health.status}`;
     element('trainingCount').textContent = status.training_records.toLocaleString();
     element('activeModel').textContent = formatModel(status.strategy);
     state.comparison = comparison;
-    renderReferenceData(employees.employees, skills.skills);
+    renderReferenceData(roles.roles, departments.departments);
     renderModels(comparison);
+    return true;
   } catch (error) {
     element('serviceBadge').innerHTML = '<span class="size-2 rounded-full bg-coral"></span>Offline';
     toast(error.message, 'error');
+    return false;
   }
 }
 
-function renderReferenceData(employees, skills) {
-  const unique = (values) => [...new Set(values.filter(Boolean))].sort();
-  element('roleOptions').innerHTML = unique(employees.map((item) => item.role)).map((value) => `<option value="${escapeHtml(value)}"></option>`).join('');
-  element('departmentOptions').innerHTML = unique(employees.map((item) => item.department)).map((value) => `<option value="${escapeHtml(value)}"></option>`).join('');
-  element('skillSelect').innerHTML = skills.length ? skills.map((skill) => `<option value="${escapeHtml(skill.name)}">${escapeHtml(skill.name)}</option>`).join('') : '<option disabled>No skills configured</option>';
+function renderReferenceData(roles, departments) {
+  const selectedRole = element('roleSelect').value;
+  const selectedDepartment = element('departmentSelect').value;
+  const activeRoles = roles.filter((item) => item.active);
+  const activeDepartments = departments.filter((item) => item.active);
+  element('roleSelect').innerHTML = activeRoles.length
+    ? `<option value="" disabled selected>Select a role</option>${activeRoles.map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`).join('')}`
+    : '<option value="" disabled selected>No active roles configured</option>';
+  element('departmentSelect').innerHTML = `<option value="">Any department</option>${activeDepartments.map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`).join('')}`;
+  if (activeRoles.some((item) => item.name === selectedRole)) element('roleSelect').value = selectedRole;
+  if (activeDepartments.some((item) => item.name === selectedDepartment)) element('departmentSelect').value = selectedDepartment;
+}
+
+async function refreshDashboard() {
+  const button = element('refreshButton');
+  button.disabled = true;
+  button.querySelector('i')?.classList.add('animate-spin');
+  try {
+    const refreshed = await loadDashboard();
+    if (refreshed) toast('Dashboard refreshed');
+  } finally {
+    button.disabled = false;
+    button.querySelector('i')?.classList.remove('animate-spin');
+  }
 }
 
 function renderModels(comparison) {
@@ -101,8 +122,7 @@ function schedulePayload(form) {
   const payload = {
     shift_date: data.get('shift_date'), start_time: data.get('start_time'), end_time: data.get('end_time'),
     required_role: data.get('required_role').trim(), workload_score: Number(data.get('workload_score')),
-    model_strategy: data.get('model_strategy'), allow_overtime: data.get('allow_overtime') === 'on',
-    required_skills: [...element('skillSelect').selectedOptions].map((option) => option.value)
+    model_strategy: data.get('model_strategy'), allow_overtime: data.get('allow_overtime') === 'on'
   };
   const department = data.get('required_department').trim();
   if (department) payload.required_department = department;
@@ -221,7 +241,7 @@ document.addEventListener('DOMContentLoaded', () => {
     element('csvFile').dispatchEvent(new Event('change'));
   });
   document.querySelectorAll('[data-decision]').forEach((button) => button.addEventListener('click', () => decideShift(button.dataset.decision)));
-  element('refreshButton').addEventListener('click', loadDashboard);
+  element('refreshButton').addEventListener('click', refreshDashboard);
   lucide.createIcons();
   loadDashboard();
 });

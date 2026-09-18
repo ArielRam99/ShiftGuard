@@ -94,44 +94,6 @@ def _would_exceed_consecutive_days(history, shift_date, maximum_days):
     return run > int(maximum_days)
 
 
-def _ensure_required_skills(database, skill_names):
-    normalized = []
-    seen = set()
-    for name in skill_names:
-        key = name.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        database.execute("INSERT OR IGNORE INTO skills (name) VALUES (?)", (name,))
-        skill = database.execute(
-            "SELECT id, name FROM skills WHERE LOWER(name) = LOWER(?)", (name,)
-        ).fetchone()
-        normalized.append(dict(skill))
-    return normalized
-
-
-def _employee_skill_map(database, employee_ids):
-    if not employee_ids:
-        return {}
-    placeholders = ",".join("?" for _ in employee_ids)
-    rows = database.execute(
-        f"""
-        SELECT es.employee_id, s.name, es.proficiency
-        FROM employee_skills AS es
-        JOIN skills AS s ON s.id = es.skill_id
-        WHERE es.employee_id IN ({placeholders})
-        """,
-        employee_ids,
-    ).fetchall()
-    result = {employee_id: {} for employee_id in employee_ids}
-    for row in rows:
-        result[row["employee_id"]][row["name"].casefold()] = {
-            "name": row["name"],
-            "proficiency": row["proficiency"],
-        }
-    return result
-
-
 def _time_off_map(database, employee_ids, shift_date):
     if not employee_ids:
         return {}
@@ -160,7 +122,6 @@ def _constraint_warnings(summary):
         "unavailable": "not available for the full shift",
         "pending_time_off": "pending time-off request",
         "approved_time_off": "approved time off",
-        "missing_skills": "missing one or more required skills",
         "insufficient_rest": "minimum-rest violation",
         "consecutive_days": "consecutive-day limit",
         "overtime_not_allowed": "overtime not enabled",
@@ -186,9 +147,7 @@ def generate_shift_recommendation(
     allow_overtime=False,
     model_strategy="random_forest",
     required_department=None,
-    required_skills=None,
 ):
-    required_skills = required_skills or []
     history = database.execute(
         """
         SELECT day_of_week, workload_score, shift_length_hours, required_staff
@@ -220,7 +179,6 @@ def generate_shift_recommendation(
         confidence_level = None
         model_metrics = None
 
-    required_skill_rows = _ensure_required_skills(database, required_skills)
     cursor = database.execute(
         """
         INSERT INTO shifts (
@@ -247,10 +205,6 @@ def generate_shift_recommendation(
         ),
     )
     shift_id = cursor.lastrowid
-    database.executemany(
-        "INSERT INTO shift_required_skills (shift_id, skill_id) VALUES (?, ?)",
-        [(shift_id, skill["id"]) for skill in required_skill_rows],
-    )
 
     candidates = database.execute(
         """
@@ -265,16 +219,13 @@ def generate_shift_recommendation(
     employee_ids = [row["id"] for row in candidates]
     weekly_hours = _approved_weekly_hours(database, employee_ids, shift_date)
     approved_history = _approved_shift_history(database, employee_ids, shift_date)
-    skill_map = _employee_skill_map(database, employee_ids)
     time_off = _time_off_map(database, employee_ids, shift_date)
-    required_skill_keys = {skill["name"].casefold() for skill in required_skill_rows}
 
     excluded = {
         "department_mismatch": 0,
         "unavailable": 0,
         "pending_time_off": 0,
         "approved_time_off": 0,
-        "missing_skills": 0,
         "insufficient_rest": 0,
         "consecutive_days": 0,
         "overtime_not_allowed": 0,
@@ -307,10 +258,6 @@ def generate_shift_recommendation(
             blockers.append("approved_time_off")
         elif "pending" in statuses:
             blockers.append("pending_time_off")
-
-        employee_skills = skill_map.get(employee["id"], {})
-        if not required_skill_keys.issubset(employee_skills):
-            blockers.append("missing_skills")
 
         employee_history = approved_history.get(employee["id"], [])
         if _has_rest_violation(
@@ -346,21 +293,12 @@ def generate_shift_recommendation(
         )
         utilization = current_hours / employee["max_weekly_hours"]
         preferred_bonus = 6 if availability["preference"] == "preferred" else 0
-        proficiencies = [
-            employee_skills[key]["proficiency"] for key in required_skill_keys
-        ]
-        proficiency_bonus = (
-            ((sum(proficiencies) / len(proficiencies)) - 3) * 2
-            if proficiencies
-            else 0
-        )
         score = (
             100
             - (utilization * 45)
             - (overtime_hours * 12)
             - (recent_assignments * 3)
             + preferred_bonus
-            + proficiency_bonus
         )
         reason_parts = [
             f"{availability['preference'].capitalize()} for the full shift",
@@ -370,8 +308,6 @@ def generate_shift_recommendation(
             ),
             f"{recent_assignments} approved shift(s) in the prior 28 days",
         ]
-        if required_skill_rows:
-            reason_parts.append("all required skills matched")
         if overtime_hours:
             reason_parts.append(f"{overtime_hours:.1f} overtime hours")
         else:
@@ -461,16 +397,6 @@ def get_shift(database, shift_id):
         """,
         (shift_id,),
     ).fetchall()
-    skills = database.execute(
-        """
-        SELECT s.name
-        FROM shift_required_skills AS srs
-        JOIN skills AS s ON s.id = srs.skill_id
-        WHERE srs.shift_id = ?
-        ORDER BY s.name
-        """,
-        (shift_id,),
-    ).fetchall()
     try:
         constraint_summary = json.loads(shift["constraint_summary"] or "{}")
     except (TypeError, json.JSONDecodeError):
@@ -484,7 +410,6 @@ def get_shift(database, shift_id):
         "duration_hours": shift["duration_hours"],
         "required_role": shift["required_role"],
         "required_department": shift["required_department"],
-        "required_skills": [row["name"] for row in skills],
         "workload_score": shift["workload_score"],
         "required_staff": shift["required_staff"],
         "model_source": shift["model_source"],

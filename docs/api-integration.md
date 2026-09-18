@@ -27,7 +27,7 @@ start with `/api`.
    Managers use filtered `GET /api/time-off` and
    `PATCH /api/time-off/{request_id}/decision`.
 7. Request a draft with `POST /api/shifts/recommendations`, optionally adding
-   `required_department` and `required_skills`.
+   `required_department`.
 8. Display the selected `model_source`, recommended staff, `staffing_range`,
    assignments, reasons, overtime values, `coverage_gap`,
    `constraint_summary`, and `constraint_warnings` for manager review.
@@ -48,7 +48,7 @@ case-insensitive `required_role` and `required_department`, plus `status` and
 
 Candidate eligibility is evaluated before ranking:
 
-- active employee, matching role, optional department, and every required skill;
+- active employee, matching role, and optional department;
 - a recurring availability interval covering the full shift;
 - no pending or approved time-off request covering the shift date;
 - no overlap or gap shorter than the employee's `minimum_rest_hours`;
@@ -56,8 +56,8 @@ Candidate eligibility is evaluated before ranking:
 - no overtime unless requested, and never more than `max_overtime_hours`.
 
 Among eligible employees, ranking favors lower weekly utilization, fewer
-approved shifts during the previous 28 days, preferred availability, and higher
-proficiency in required skills. Hourly rate is not used. Exclusion counts are
+approved shifts during the previous 28 days and preferred availability. Hourly
+rate is not used. Exclusion counts are
 persisted with each shift so later retrieval and report integrations can explain
 coverage gaps. Defaults are operational safeguards and must be configured for
 the applicable jurisdiction and labor agreement.

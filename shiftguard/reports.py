@@ -75,7 +75,6 @@ def _schedule_xlsx(shifts):
             "End",
             "Role",
             "Department",
-            "Required Skills",
             "Recommended Staff",
             "Range",
             "Model",
@@ -94,7 +93,6 @@ def _schedule_xlsx(shifts):
                 shift["end_time"],
                 shift["required_role"],
                 shift["required_department"] or "",
-                ", ".join(shift["required_skills"]),
                 shift["required_staff"],
                 f"{staffing_range['minimum']}-{staffing_range['maximum']}",
                 shift["model_source"],
@@ -168,7 +166,6 @@ def _schedule_pdf(shifts):
             "Date",
             "Time",
             "Role / Department",
-            "Skills",
             "Staff",
             "Range",
             "Model",
@@ -188,7 +185,6 @@ def _schedule_pdf(shifts):
                     f"{shift['required_role']} / "
                     f"{shift['required_department'] or 'Any'}"
                 ),
-                ", ".join(shift["required_skills"]) or "None",
                 shift["required_staff"],
                 f"{staffing_range['minimum']}-{staffing_range['maximum']}",
                 shift["model_source"],

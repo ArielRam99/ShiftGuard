@@ -5,9 +5,12 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+build/
+dist/
 instance/
 .env
 .DS_Store
+*.spec.bak
 shiftguard.db
 *.db
 *.sqlite

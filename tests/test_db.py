@@ -1,6 +1,6 @@
 import sqlite3
 
-from shiftguard.db import _migrate_existing_database
+from shiftguard.db import DEFAULT_ROLES, _migrate_existing_database, seed_demo_data
 
 
 def test_existing_database_receives_additive_phase_b_columns(tmp_path):
@@ -105,8 +105,82 @@ def test_fresh_database_has_phase_b_tables(app):
             ).fetchall()
         }
     assert {
+        "roles",
+        "departments",
         "skills",
         "employee_skills",
         "time_off_requests",
-        "shift_required_skills",
     }.issubset(tables)
+
+    with app.app_context():
+        roles = get_db().execute("SELECT name FROM roles").fetchall()
+        departments = get_db().execute("SELECT name FROM departments").fetchall()
+    assert len(roles) == 50
+    assert {row["name"] for row in departments} >= {
+        "Clinical",
+        "Emergency",
+        "General",
+        "Surgery",
+    }
+
+
+def test_demo_seed_creates_200_employees_across_predefined_roles(app):
+    from shiftguard.db import get_db
+
+    with app.app_context():
+        database = get_db()
+        cursor = database.execute(
+            """
+            INSERT INTO employees
+                (name, role, max_weekly_hours, hourly_rate, department)
+            VALUES ('Existing User', 'Nurse', 40, 30, 'Clinical')
+            """
+        )
+        existing_employee_id = cursor.lastrowid
+        database.executemany(
+            """
+            INSERT INTO employees
+                (name, role, max_weekly_hours, hourly_rate, department)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                ("Jordan Lee", "Nurse", 40, 32, "Clinical"),
+                ("Casey Smith", "Nurse", 36, 30, "Clinical"),
+                ("Taylor Kim", "Nurse", 32, 34, "Clinical"),
+                ("Morgan Diaz", "Assistant", 40, 22, "Clinical"),
+            ],
+        )
+        database.commit()
+
+        seed_demo_data()
+        seed_demo_data()
+
+        employee_count = database.execute(
+            "SELECT COUNT(*) AS count FROM employees"
+        ).fetchone()["count"]
+        role_counts = database.execute(
+            """
+            SELECT role, COUNT(*) AS count
+            FROM employees
+            WHERE name <> 'Existing User'
+            GROUP BY role
+            """
+        ).fetchall()
+        invalid_roles = database.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM employees AS e
+            LEFT JOIN roles AS r ON LOWER(r.name) = LOWER(e.role)
+            WHERE r.id IS NULL
+            """
+        ).fetchone()["count"]
+        existing_availability = database.execute(
+            "SELECT COUNT(*) AS count FROM availability WHERE employee_id = ?",
+            (existing_employee_id,),
+        ).fetchone()["count"]
+
+    assert employee_count == 201
+    assert {row["role"] for row in role_counts} == set(DEFAULT_ROLES)
+    assert {row["count"] for row in role_counts} == {4}
+    assert invalid_roles == 0
+    assert existing_availability == 0

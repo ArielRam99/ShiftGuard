@@ -85,6 +85,47 @@ def test_health_endpoint(client):
     assert response.get_json() == {"service": "ShiftGuard AI", "status": "ok"}
 
 
+def test_role_and_department_catalogs_control_scheduling_inputs(client):
+    roles = client.get("/api/roles")
+    departments = client.get("/api/departments")
+    assert roles.status_code == 200
+    assert len(roles.get_json()["roles"]) == 50
+    assert "Nurse" in {item["name"] for item in roles.get_json()["roles"]}
+    assert departments.status_code == 200
+    assert "Emergency" in {
+        item["name"] for item in departments.get_json()["departments"]
+    }
+
+    created = client.post("/api/roles", json={"name": "Custom Specialist"})
+    assert created.status_code == 201
+    role = created.get_json()
+    assert role["active"] == 1
+
+    employee_id = _create_employee(
+        client, "Catalog Employee", role="custom specialist"
+    )
+    employee = client.get(f"/api/employees/{employee_id}").get_json()
+    assert employee["role"] == "Custom Specialist"
+
+    disabled = client.patch(
+        f"/api/roles/{role['id']}", json={"active": False}
+    )
+    assert disabled.status_code == 200
+    rejected = client.post(
+        "/api/shifts/recommendations",
+        json={
+            "shift_date": "2026-09-01",
+            "start_time": "09:00",
+            "end_time": "17:00",
+            "required_role": "Custom Specialist",
+            "workload_score": 50,
+            "required_staff": 1,
+        },
+    )
+    assert rejected.status_code == 400
+    assert "active role" in rejected.get_json()["error"]
+
+
 def test_complete_manager_approval_workflow(client):
     employee_ids = [_create_employee(client, "Alex One"), _create_employee(client, "Alex Two")]
     for employee_id in employee_ids:
@@ -343,7 +384,7 @@ def test_update_and_deactivate_employee(client):
     assert invalid.status_code == 400
 
 
-def test_employee_constraints_and_preferred_skill_routing(client):
+def test_employee_constraints_and_preferred_department_routing(client):
     preferred_id = _create_employee(
         client,
         "Preferred Specialist",
@@ -386,15 +427,15 @@ def test_employee_constraints_and_preferred_skill_routing(client):
         "2026-09-01",
         required_staff=2,
         required_department="Emergency",
-        required_skills=["Triage"],
     )
     assert result["required_department"] == "Emergency"
-    assert result["required_skills"] == ["Triage"]
-    assert [item["employee_id"] for item in result["assignments"]] == [preferred_id]
+    assert [item["employee_id"] for item in result["assignments"]] == [
+        preferred_id,
+        missing_skill_id,
+    ]
     assert "Preferred for the full shift" in result["assignments"][0]["reason"]
-    assert result["coverage_gap"] == 1
+    assert result["coverage_gap"] == 0
     excluded = result["constraint_summary"]["excluded"]
-    assert excluded["missing_skills"] == 1
     assert excluded["department_mismatch"] == 1
     assert "hourly rate is not used" in result["constraint_summary"]["fairness_policy"]
     fetched = client.get(f"/api/shifts/{result['id']}").get_json()
@@ -723,7 +764,7 @@ def test_schedule_and_analytics_reports(app, client):
     schedule_headers = [cell.value for cell in next(workbook["Schedules"].rows)]
     assignment_headers = [cell.value for cell in next(workbook["Assignments"].rows)]
     assert "Department" in schedule_headers
-    assert "Required Skills" in schedule_headers
+    assert "Required Skills" not in schedule_headers
     assert "Department" in assignment_headers
 
     analytics_pdf = client.get("/api/reports/analytics.pdf")
