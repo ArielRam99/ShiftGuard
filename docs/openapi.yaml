@@ -16,6 +16,8 @@ info:
 servers:
   - url: http://127.0.0.1:5000
     description: Local Flask development server
+security:
+  - sessionCookie: []
 tags:
   - name: System
     description: Service and model readiness
@@ -34,6 +36,7 @@ tags:
 paths:
   /api/health:
     get:
+      security: []
       tags: [System]
       operationId: getHealth
       summary: Check service and database health
@@ -926,6 +929,15 @@ paths:
               example:
                 error: Only draft recommendations can be decided
 components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+      description: |
+        Flask session established by the browser login flow. POST, PATCH, and
+        DELETE requests must also send the dashboard CSRF token in the
+        `X-CSRFToken` header.
   parameters:
     EmployeeId:
       name: employee_id
