@@ -9,7 +9,11 @@ const element = (id) => document.getElementById(id);
 const formatModel = (value) => labels[value] || value || 'Unavailable';
 
 async function api(path, options = {}) {
-  const response = await fetch(path, options);
+  const headers = new Headers(options.headers || {});
+  if (!['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase())) {
+    headers.set('X-CSRFToken', document.querySelector('meta[name="csrf-token"]').content);
+  }
+  const response = await fetch(path, { ...options, headers });
   const body = response.status === 204 ? null : await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(body.error || `Request failed (${response.status})`);
@@ -175,12 +179,10 @@ function renderShift(shift) {
 
 async function decideShift(decision) {
   if (!state.currentShift) return;
-  const managerName = element('managerName').value.trim();
-  if (!managerName) { toast('Enter a manager name before deciding', 'error'); return; }
   try {
     const shift = await api(`/api/shifts/${state.currentShift.id}/decision`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decision, manager_name: managerName, manager_note: element('managerNote').value.trim() })
+      body: JSON.stringify({ decision, manager_note: element('managerNote').value.trim() })
     });
     state.currentShift = shift;
     renderShift(shift);

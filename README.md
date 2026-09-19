@@ -9,6 +9,8 @@ every generated schedule.
 
 - Flask JSON API for employees, preferred availability, skills, time off, and
   shift recommendations
+- Password-hashed local accounts with signed sessions, CSRF protection, and
+  viewer, manager, and administrator permissions
 - Responsive Tailwind manager dashboard for staffing predictions, model
   comparison, CSV training-data import, and schedule decisions
 - SQLite persistence with parameterized queries and foreign-key enforcement
@@ -31,6 +33,7 @@ every generated schedule.
 | Component | Responsibility |
 | --- | --- |
 | `shiftguard/api.py` | Validates requests and exposes the integration API |
+| `shiftguard/auth.py` | Manages accounts, sessions, CSRF, and role authorization |
 | `shiftguard/db.py` | Manages SQLite, schema initialization, and demo data |
 | `shiftguard/ai.py` | Predicts required staffing from historical demand |
 | `shiftguard/reports.py` | Generates downloadable PDF and Excel reports |
@@ -93,8 +96,9 @@ packages and the dashboard's Tailwind CSS, Lucide icons, and display fonts.
   python -m flask --app app run --debug
   ```
 
-  Open `http://127.0.0.1:5000`. From another PowerShell terminal, verify the
-  API with:
+  Open `http://127.0.0.1:5000`. On first launch, create the administrator
+  account with an email address and a password of at least 12 characters.
+  From another PowerShell terminal, verify the public health endpoint with:
 
   ```powershell
   Invoke-RestMethod http://127.0.0.1:5000/api/health
@@ -147,6 +151,27 @@ The database is created at `instance/shiftguard.sqlite`. The Flask server and
 tests run as separate commands because the server occupies its terminal until
 it is stopped.
 
+## Authentication
+
+ShiftGuard uses Flask-Login sessions. Passwords are stored in SQLite as salted
+Werkzeug hashes and are never stored as plaintext. Browser mutations use
+Flask-WTF CSRF tokens. The first visit to a new installation opens a one-time
+administrator setup page; after an account exists, that page is disabled.
+
+Additional accounts can be created interactively from the repository root:
+
+```powershell
+python -m flask --app app create-user
+```
+
+Viewers have read access, managers can change operational scheduling data, and
+administrators can also manage reference catalogs and import training data.
+Set `SHIFTGUARD_SECRET_KEY` to a long random value in managed deployments. If
+it is omitted, ShiftGuard generates and persists a local key in its instance
+directory. Production deployments must terminate HTTPS and set
+`SHIFTGUARD_SECURE_COOKIES=1` so session cookies are never transported over
+plaintext networks.
+
 ## Windows executable
 
 The CI workflow builds a Windows distribution after the test job succeeds. To
@@ -163,6 +188,7 @@ the ShiftGuard console stops the server. Application data persists at
 On startup, the packaged application loads the 200 synthetic demo employees,
 availability, and training history when its database contains no employees.
 Existing employee data is never replaced or supplemented automatically.
+The first browser launch also prompts for the initial administrator account.
 
 The distribution uses PyInstaller's one-folder layout because scientific
 Python dependencies require supporting DLLs alongside the executable. To build

@@ -165,7 +165,7 @@ def test_complete_manager_approval_workflow(client):
     assert approval.status_code == 200
     approved = approval.get_json()
     assert approved["status"] == "approved"
-    assert approved["decided_by"] == "Demo Manager"
+    assert approved["decided_by"] == "Test Administrator"
     assert approved["requires_manager_approval"] is False
     assert all(item["status"] == "approved" for item in approved["assignments"])
 
@@ -494,7 +494,7 @@ def test_time_off_workflow_blocks_pending_and_approved_requests(client):
     )
     assert approved.status_code == 200
     assert approved.get_json()["status"] == "approved"
-    assert approved.get_json()["decided_by"] == "Phase B Manager"
+    assert approved.get_json()["decided_by"] == "Test Administrator"
 
     approved_result = _recommend(client, "2026-09-01")
     assert approved_result["assignments"] == []
