@@ -1,5 +1,6 @@
 import csv
 import io
+import logging
 import sqlite3
 from datetime import date, datetime
 
@@ -10,6 +11,8 @@ from .ai import SUPPORTED_MODELS, StaffingPredictor
 from .db import get_db
 from .reports import MIME_TYPES, analytics_report, schedule_report
 from .scheduling import generate_shift_recommendation, get_shift
+
+logger = logging.getLogger("shiftguard.audit")
 
 
 bp = Blueprint("api", __name__, url_prefix="/api")
@@ -56,6 +59,14 @@ def require_api_access():
 def register_error_handlers(app):
     @app.errorhandler(APIError)
     def handle_api_error(error):
+        logger.warning(
+            "API error: method=%s path=%s status=%d message=%s",
+            request.method,
+            request.path,
+            error.status_code,
+            error.message,
+        )
+
         response = {"error": error.message}
         if error.details:
             response["details"] = error.details
@@ -63,7 +74,23 @@ def register_error_handlers(app):
 
     @app.errorhandler(404)
     def handle_not_found(_error):
+        logger.warning(
+            "Resource not found: method=%s path=%s",
+            request.method,
+            request.path,
+        )
+
         return jsonify({"error": "Resource not found"}), 404
+
+    @app.errorhandler(500)
+    def handle_internal_error(error):
+        logger.exception(
+            "Internal server error: method=%s path=%s",
+            request.method,
+            request.path,
+        )
+
+        return jsonify({"error": "Internal server error"}), 500
 
 
 def _json_body():
@@ -396,6 +423,14 @@ def import_historical_staffing():
         )
         imported += cursor.rowcount
     database.commit()
+
+    logger.info(
+        "Historical staffing import completed: imported=%d skipped_duplicates=%d total_rows=%d",
+        imported,
+        len(rows) - imported,
+        len(rows),
+    )
+
     return jsonify(
         {
             "imported_records": imported,
@@ -886,6 +921,13 @@ def request_employee_time_off(employee_id):
         (employee_id, start_date.isoformat(), end_date.isoformat(), reason),
     )
     database.commit()
+
+    logger.info(
+        "Time-off request created: request_id=%d employee_id=%d",
+        cursor.lastrowid,
+        employee_id,
+    )
+
     return jsonify(dict(_time_off_request(database, cursor.lastrowid))), 201
 
 
@@ -916,6 +958,13 @@ def decide_time_off(request_id):
         database.rollback()
         raise APIError("Only pending time-off requests can be decided", 409)
     database.commit()
+
+    logger.info(
+        "Time-off decision recorded: request_id=%d decision=%s",
+        request_id,
+        decision,
+    )
+
     return jsonify(dict(_time_off_request(database, request_id)))
 
 
@@ -1010,6 +1059,12 @@ def _report_format(file_format):
 def export_schedules(file_format):
     file_format = _report_format(file_format)
     report = schedule_report(_filtered_shifts(get_db()), file_format)
+
+    logger.info(
+        "Schedule report generated: format=%s",
+        file_format,
+    )
+
     return send_file(
         report,
         mimetype=MIME_TYPES[file_format],
@@ -1047,6 +1102,13 @@ def export_analytics(file_format):
     ).fetchall()
     comparison = StaffingPredictor().compare(history)
     report = analytics_report(summary, comparison, file_format)
+
+    logger.info(
+        "Analytics report generated: format=%s total_shifts=%d",
+        file_format,
+        len(shifts),
+    )
+
     return send_file(
         report,
         mimetype=MIME_TYPES[file_format],
@@ -1118,6 +1180,14 @@ def recommend_shift():
         model_strategy=model_strategy,
         required_department=required_department,
     )
+
+    logger.info(
+        "Schedule recommendation generated: date=%s role=%s model_strategy=%s",
+        shift_date.isoformat(),
+        required_role,
+        model_strategy,
+    )
+
     return jsonify(recommendation), 201
 
 
@@ -1163,4 +1233,11 @@ def decide_shift(shift_id):
         (decision, shift_id),
     )
     database.commit()
+
+    logger.info(
+        "Schedule decision recorded: shift_id=%d decision=%s",
+        shift_id,
+        decision,
+    )
+
     return jsonify(get_shift(database, shift_id))

@@ -18,6 +18,8 @@ def _secret_key(instance_path):
         secret_file.write_text(secrets.token_hex(32), encoding="ascii")
     return secret_file.read_text(encoding="ascii").strip()
 
+from .logging_config import configure_logging
+
 
 def create_app(test_config=None):
     """Create and configure the ShiftGuard Flask application."""
@@ -35,6 +37,8 @@ def create_app(test_config=None):
         app.config.update(test_config)
 
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
+
+    configure_logging(app)
 
     db.init_app(app)
     auth.init_app(app)
