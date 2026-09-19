@@ -1,24 +1,29 @@
 import os
 import secrets
+from datetime import timedelta
 from pathlib import Path
 
 from flask import Flask, render_template, send_from_directory
 from flask_login import login_required
 
 from . import api, auth, db
+from .logging_config import configure_logging
 
 
 def _secret_key(instance_path):
     configured = os.environ.get("SHIFTGUARD_SECRET_KEY")
     if configured:
+        if len(configured) < 32:
+            raise RuntimeError("SHIFTGUARD_SECRET_KEY must contain at least 32 characters")
         return configured
     secret_file = Path(instance_path) / ".secret-key"
     if not secret_file.exists():
         secret_file.parent.mkdir(parents=True, exist_ok=True)
         secret_file.write_text(secrets.token_hex(32), encoding="ascii")
-    return secret_file.read_text(encoding="ascii").strip()
-
-from .logging_config import configure_logging
+    secret = secret_file.read_text(encoding="ascii").strip()
+    if len(secret) < 32:
+        raise RuntimeError("Stored session secret must contain at least 32 characters")
+    return secret
 
 
 def create_app(test_config=None):
@@ -27,6 +32,7 @@ def create_app(test_config=None):
     app.config.from_mapping(
         DATABASE=str(Path(app.instance_path) / "shiftguard.sqlite"),
         JSON_SORT_KEYS=False,
+        PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
         SECRET_KEY=_secret_key(app.instance_path),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
@@ -65,4 +71,3 @@ def create_app(test_config=None):
         )
 
     return app
-

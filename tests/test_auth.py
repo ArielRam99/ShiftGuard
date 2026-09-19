@@ -1,5 +1,7 @@
 import re
+from datetime import timedelta
 
+import pytest
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from shiftguard import create_app
@@ -84,6 +86,35 @@ def test_login_uses_hashed_password_and_logout(app, anonymous_client):
 
     assert anonymous_client.post("/logout").status_code == 302
     assert anonymous_client.get("/api/employees").status_code == 401
+
+
+def test_login_is_permanent_for_eight_hours(app, anonymous_client):
+    anonymous_client.post(
+        "/login",
+        data={"email": "admin@example.com", "password": "test-password-123"},
+    )
+    with anonymous_client.session_transaction() as browser_session:
+        assert browser_session.permanent is True
+    assert app.permanent_session_lifetime == timedelta(hours=8)
+
+
+def test_deactivated_account_loses_existing_session(app, anonymous_client):
+    anonymous_client.post(
+        "/login",
+        data={"email": "admin@example.com", "password": "test-password-123"},
+    )
+    with app.app_context():
+        get_db().execute(
+            "UPDATE users SET active = 0 WHERE email = 'admin@example.com'"
+        )
+        get_db().commit()
+    assert anonymous_client.get("/api/employees").status_code == 401
+
+
+def test_short_configured_secret_is_rejected(monkeypatch, tmp_path):
+    monkeypatch.setenv("SHIFTGUARD_SECRET_KEY", "too-short")
+    with pytest.raises(RuntimeError, match="at least 32"):
+        create_app({"TESTING": True, "DATABASE": str(tmp_path / "secret.sqlite")})
 
 
 def test_viewer_can_read_but_cannot_mutate(app):

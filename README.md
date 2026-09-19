@@ -155,8 +155,10 @@ it is stopped.
 
 ShiftGuard uses Flask-Login sessions. Passwords are stored in SQLite as salted
 Werkzeug hashes and are never stored as plaintext. Browser mutations use
-Flask-WTF CSRF tokens. The first visit to a new installation opens a one-time
-administrator setup page; after an account exists, that page is disabled.
+Flask-WTF CSRF tokens. Signed-in sessions expire after eight hours, and a
+deactivated account is rejected on its next request. The first visit to a new
+installation opens a one-time administrator setup page; after an account
+exists, that page is disabled.
 
 Additional accounts can be created interactively from the repository root:
 
@@ -166,7 +168,7 @@ python -m flask --app app create-user
 
 Viewers have read access, managers can change operational scheduling data, and
 administrators can also manage reference catalogs and import training data.
-Set `SHIFTGUARD_SECRET_KEY` to a long random value in managed deployments. If
+Set `SHIFTGUARD_SECRET_KEY` to at least 32 random characters in managed deployments. If
 it is omitted, ShiftGuard generates and persists a local key in its instance
 directory. Production deployments must terminate HTTPS and set
 `SHIFTGUARD_SECURE_COOKIES=1` so session cookies are never transported over
@@ -353,5 +355,4 @@ statistical guarantees.
   characteristics or hourly pay.
 - A production version still needs authentication, authorization, encrypted
   deployment, formal database migrations, monitoring, and bias evaluation.
-
 
