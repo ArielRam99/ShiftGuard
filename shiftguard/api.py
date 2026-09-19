@@ -7,6 +7,7 @@ from datetime import date, datetime
 from flask import Blueprint, jsonify, request, send_file
 from flask_login import current_user
 
+from .access import assigned_shifts, authorize_api_request
 from .ai import SUPPORTED_MODELS, StaffingPredictor
 from .db import get_db
 from .reports import MIME_TYPES, analytics_report, schedule_report
@@ -16,15 +17,6 @@ logger = logging.getLogger("shiftguard.audit")
 
 
 bp = Blueprint("api", __name__, url_prefix="/api")
-
-ADMIN_ENDPOINTS = {
-    "api.create_role",
-    "api.set_role_active",
-    "api.create_department",
-    "api.set_department_active",
-    "api.import_historical_staffing",
-}
-ROLE_LEVELS = {"viewer": 0, "manager": 1, "admin": 2}
 
 REFERENCE_CATALOGS = {
     "roles": "role",
@@ -42,18 +34,7 @@ class APIError(Exception):
 
 @bp.before_request
 def require_api_access():
-    if request.endpoint == "api.health":
-        return None
-    if not current_user.is_authenticated:
-        return jsonify({"error": "Authentication required"}), 401
-    required_level = 0
-    if request.method not in {"GET", "HEAD", "OPTIONS"}:
-        required_level = 1
-    if request.endpoint in ADMIN_ENDPOINTS:
-        required_level = 2
-    if ROLE_LEVELS.get(current_user.role, -1) < required_level:
-        return jsonify({"error": "You do not have permission for this action"}), 403
-    return None
+    return authorize_api_request()
 
 
 def register_error_handlers(app):
@@ -288,6 +269,11 @@ def health():
     database = get_db()
     database.execute("SELECT 1").fetchone()
     return jsonify({"service": "ShiftGuard AI", "status": "ok"})
+
+
+@bp.get("/me/shifts")
+def my_shifts():
+    return jsonify({"shifts": assigned_shifts()})
 
 
 @bp.get("/model/status")

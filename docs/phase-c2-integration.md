@@ -16,3 +16,14 @@ that implementation; they do not replace it.
 Do not publish an intermediate stack commit as a completed authentication
 release. Review and test the complete stack before merging the first focused
 pull request.
+
+## C2b: Role permissions and viewer ownership
+
+- Administrators retain all PR #8 permissions.
+- Managers can operate schedules and workforce records but cannot change
+  administrator-only reference catalogs or import training data.
+- A viewer must be linked to one active employee and can access only that
+  employee's record, availability, skills, time off, and approved shifts.
+- New API endpoints fail closed until they are added to an explicit allowlist.
+- Schedule and time-off decisions use the signed-in account's display name;
+  client-supplied manager identity is not trusted.

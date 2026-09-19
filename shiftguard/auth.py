@@ -23,6 +23,7 @@ class User(UserMixin):
         self.email = row["email"]
         self.display_name = row["display_name"]
         self.role = row["role"]
+        self.employee_id = row["employee_id"]
         self.active = bool(row["active"])
 
     @property
@@ -35,7 +36,7 @@ def load_user(user_id):
     if not user_id.isdigit():
         return None
     row = get_db().execute(
-        "SELECT id, email, display_name, role, active FROM users WHERE id = ?",
+        "SELECT id, email, display_name, role, employee_id, active FROM users WHERE id = ?",
         (int(user_id),),
     ).fetchone()
     return User(row) if row is not None and row["active"] else None
