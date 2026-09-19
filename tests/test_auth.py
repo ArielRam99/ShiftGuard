@@ -145,3 +145,10 @@ def test_api_mutations_require_csrf_token(app, client):
         headers={"X-CSRFToken": token},
     )
     assert accepted.status_code == 201
+
+
+def test_session_responses_are_not_cached(client):
+    for path in ("/", "/api/employees"):
+        response = client.get(path)
+        assert response.headers["Cache-Control"] == "no-store"
+        assert response.headers["Pragma"] == "no-cache"
