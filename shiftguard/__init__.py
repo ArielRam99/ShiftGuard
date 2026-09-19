@@ -30,13 +30,14 @@ def create_app(test_config=None):
     """Create and configure the ShiftGuard Flask application."""
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_mapping(
-        DATABASE=str(Path(app.instance_path) / "shiftguard.sqlite"),
+        DATABASE=os.environ.get("SHIFTGUARD_DATABASE") or str(Path(app.instance_path) / "shiftguard.sqlite"),
         JSON_SORT_KEYS=False,
         PERMANENT_SESSION_LIFETIME=timedelta(hours=8),
         SECRET_KEY=_secret_key(app.instance_path),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=os.environ.get("SHIFTGUARD_SECURE_COOKIES") == "1",
+        SETUP_TOKEN=os.environ.get("SHIFTGUARD_SETUP_TOKEN"),
     )
 
     if test_config:

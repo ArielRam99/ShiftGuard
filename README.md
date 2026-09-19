@@ -166,6 +166,11 @@ Additional accounts can be created interactively from the repository root:
 python -m flask --app app create-user
 ```
 
+Viewer accounts must include `--employee-id ID`; manager and administrator
+accounts cannot use an employee link. The packaged launcher opens a private,
+one-time setup URL. Source installations can set `SHIFTGUARD_SETUP_TOKEN` to
+at least 32 characters or create the first administrator with the CLI.
+
 Viewers have read access, managers can change operational scheduling data, and
 administrators can also manage reference catalogs and import training data.
 Set `SHIFTGUARD_SECRET_KEY` to at least 32 random characters in managed deployments. If
@@ -355,4 +360,3 @@ statistical guarantees.
   characteristics or hourly pay.
 - A production version still needs authentication, authorization, encrypted
   deployment, formal database migrations, monitoring, and bias evaluation.
-

@@ -36,19 +36,23 @@ def test_anonymous_requests_are_challenged(anonymous_client):
 
 
 def test_first_run_creates_one_administrator(tmp_path):
+    setup_token = "test-setup-token-with-at-least-32-characters"
     application = create_app(
         {
             "TESTING": True,
             "WTF_CSRF_ENABLED": False,
             "DATABASE": str(tmp_path / "first-run.sqlite"),
+            "SETUP_TOKEN": setup_token,
         }
     )
     first_run = application.test_client()
-    assert first_run.get("/login").headers["Location"].endswith("/setup")
+    assert f"token={setup_token}" in first_run.get("/login").headers["Location"]
+    assert first_run.get("/setup?token=wrong").status_code == 403
 
     created = first_run.post(
         "/setup",
         data={
+            "setup_token": setup_token,
             "display_name": "First Administrator",
             "email": "first@example.com",
             "password": "first-password-123",
@@ -63,6 +67,49 @@ def test_first_run_creates_one_administrator(tmp_path):
         user = get_db().execute("SELECT role, password_hash FROM users").fetchone()
     assert user["role"] == "admin"
     assert check_password_hash(user["password_hash"], "first-password-123")
+
+
+def test_source_setup_is_closed_without_private_token(tmp_path):
+    application = create_app(
+        {
+            "TESTING": True,
+            "WTF_CSRF_ENABLED": False,
+            "DATABASE": str(tmp_path / "closed-setup.sqlite"),
+        }
+    )
+    assert application.test_client().get("/setup").status_code == 403
+
+
+def test_cli_requires_employee_link_for_viewer(app):
+    result = app.test_cli_runner().invoke(
+        args=[
+            "create-user", "--email", "viewer2@example.com",
+            "--display-name", "Viewer Two", "--role", "viewer",
+        ],
+        input="viewer-password-456\nviewer-password-456\n",
+    )
+    assert result.exit_code != 0
+    assert "require --employee-id" in result.output
+
+
+def test_cli_creates_linked_viewer(app, client):
+    employee_id = client.post(
+        "/api/employees", json={"name": "CLI Viewer", "role": "Nurse"}
+    ).get_json()["id"]
+    result = app.test_cli_runner().invoke(
+        args=[
+            "create-user", "--email", "viewer3@example.com",
+            "--display-name", "Viewer Three", "--role", "viewer",
+            "--employee-id", str(employee_id),
+        ],
+        input="viewer-password-789\nviewer-password-789\n",
+    )
+    assert result.exit_code == 0
+    with app.app_context():
+        linked = get_db().execute(
+            "SELECT employee_id FROM users WHERE email = 'viewer3@example.com'"
+        ).fetchone()["employee_id"]
+    assert linked == employee_id
 
 
 def test_login_uses_hashed_password_and_logout(app, anonymous_client):
