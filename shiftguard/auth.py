@@ -2,7 +2,7 @@ from functools import wraps
 from urllib.parse import urljoin, urlparse
 
 import click
-from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+from flask import Blueprint, flash, redirect, render_template, request, session, url_for
 from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
@@ -38,7 +38,7 @@ def load_user(user_id):
         "SELECT id, email, display_name, role, active FROM users WHERE id = ?",
         (int(user_id),),
     ).fetchone()
-    return User(row) if row is not None else None
+    return User(row) if row is not None and row["active"] else None
 
 
 def _safe_next_url(target):
@@ -66,6 +66,8 @@ def login():
         if row is not None and row["active"] and check_password_hash(
             row["password_hash"], password
         ):
+            session.clear()
+            session.permanent = True
             login_user(User(row))
             return redirect(_safe_next_url(request.args.get("next")) or url_for("dashboard"))
         flash("Invalid email or password.", "error")
@@ -108,6 +110,7 @@ def setup():
 @login_required
 def logout():
     logout_user()
+    session.clear()
     return redirect(url_for("auth.login"))
 
 
