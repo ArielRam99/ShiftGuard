@@ -4,7 +4,7 @@ import sqlite3
 from urllib.parse import urljoin, urlparse
 
 import click
-from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, session, url_for
+from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, session, url_for
 from flask.cli import with_appcontext
 from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
 from flask_wtf import CSRFProtect
@@ -129,6 +129,7 @@ def setup():
 @bp.post("/logout")
 @login_required
 def logout():
+    g.audit_actor_id = int(current_user.get_id())
     logout_user()
     session.clear()
     return redirect(url_for("auth.login"))

@@ -179,6 +179,11 @@ directory. Production deployments must terminate HTTPS and set
 `SHIFTGUARD_SECURE_COOKIES=1` so session cookies are never transported over
 plaintext networks.
 
+Operational logs rotate at 1 MB with five backups under `logs` beside the
+configured database. Audit records contain endpoint names, status codes,
+authenticated actor IDs, and numeric resource IDs, but never credentials,
+setup tokens, private notes, or request bodies.
+
 ## Windows executable
 
 The CI workflow builds a Windows distribution after the test job succeeds. To

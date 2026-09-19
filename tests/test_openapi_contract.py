@@ -112,3 +112,11 @@ def test_phase_b_contract_captures_constraints_and_workflows():
         "constraint_summary",
         "constraint_warnings",
     }.issubset(shift_required)
+
+
+def test_decisions_use_authenticated_identity():
+    document = _openapi_document()
+    for name in ("DecisionRequest", "DecideShiftRequest"):
+        schema = document["components"]["schemas"][name]
+        assert schema["required"] == ["decision"]
+        assert schema["properties"]["manager_name"]["deprecated"] is True

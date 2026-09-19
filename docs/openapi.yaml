@@ -1436,7 +1436,7 @@ components:
           minLength: 1
     DecisionRequest:
       type: object
-      required: [decision, manager_name]
+      required: [decision]
       properties:
         decision:
           type: string
@@ -1444,6 +1444,8 @@ components:
         manager_name:
           type: string
           minLength: 1
+          deprecated: true
+          description: Ignored; the authenticated account supplies the decision identity.
         manager_note:
           type: [string, "null"]
     TimeOffRequest:
@@ -1538,7 +1540,7 @@ components:
             Ignored when `required_staff` supplies a manager override.
     DecideShiftRequest:
       type: object
-      required: [decision, manager_name]
+      required: [decision]
       properties:
         decision:
           type: string
@@ -1547,6 +1549,8 @@ components:
         manager_name:
           type: string
           minLength: 1
+          deprecated: true
+          description: Ignored; the authenticated account supplies the decision identity.
         manager_note:
           type: [string, "null"]
     Shift:

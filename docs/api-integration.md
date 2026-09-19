@@ -112,8 +112,9 @@ When changing the API:
 
 ## Current MVP limitations
 
-- Authentication and authorization are not implemented.
-- `manager_name` is supplied by the client and is not an authenticated identity.
+- Accounts are local; password recovery, external identity providers, and
+  login rate limiting remain future work.
+- Permission changes require local account administration and fresh sign-in.
 - Overnight shifts are rejected.
 - Availability is recurring weekly; time off supplies date-specific exceptions.
 - `training_records` and `coverage_gap` are returned when a recommendation is
