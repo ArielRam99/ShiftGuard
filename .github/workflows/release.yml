@@ -22,12 +22,18 @@ jobs:
     steps:
       - name: Checkout tagged source
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Validate release tag
         shell: pwsh
         run: |
           if ("${{ github.ref_name }}" -notmatch '^v\d+\.\d+\.\d+$') {
             throw "Release tags must use semantic versioning, for example v1.0.0"
+          }
+          git merge-base --is-ancestor HEAD origin/main
+          if ($LASTEXITCODE -ne 0) {
+            throw "Release tags must point to reviewed commits already on main"
           }
 
       - name: Set up Python 3.12
@@ -43,39 +49,20 @@ jobs:
         run: python -m pip install -r requirements-build.txt
 
       - name: Test tagged source
-        run: python -m pytest -v
+        run: python -m pytest -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Test browser authentication scripts
+        run: node --test tests-js/*.test.js
 
       - name: Build Windows distribution
         run: python -m PyInstaller --clean --noconfirm shiftguard.spec
 
-      - name: Smoke test Windows executable
-        shell: pwsh
-        env:
-          SHIFTGUARD_NO_BROWSER: "1"
-          SHIFTGUARD_PORT: "5055"
-        run: |
-          $process = Start-Process -FilePath ".\dist\ShiftGuard\ShiftGuard.exe" -PassThru
-          try {
-            $healthy = $false
-            for ($attempt = 1; $attempt -le 30; $attempt++) {
-              try {
-                $response = Invoke-RestMethod "http://127.0.0.1:5055/api/health"
-                if ($response.status -eq "ok") {
-                  $healthy = $true
-                  break
-                }
-              }
-              catch {
-                Start-Sleep -Seconds 1
-              }
-            }
-            if (-not $healthy) {
-              throw "ShiftGuard executable did not pass its health check"
-            }
-          }
-          finally {
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-          }
+      - name: Smoke test authenticated Windows workflow
+        run: python tests/smoke_packaged.py dist/ShiftGuard/ShiftGuard.exe
 
       - name: Package release files
         id: package

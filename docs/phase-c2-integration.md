@@ -43,3 +43,17 @@ pull request.
   accounts additionally require one unique active employee ID.
 - `SHIFTGUARD_DATABASE` can select the packaged database when provisioning
   accounts from a source checkout.
+
+## C2d: Audit and whole-stack release checks
+
+- PR #9 remains the logging backend. C2d reuses its one rotating handler and
+  adds structured endpoint, status, actor ID, and resource ID audit records.
+- Passwords, setup tokens, emails, names, notes, request bodies, and raw URLs
+  are excluded from audit records.
+- Linux source and Windows package smoke tests exercise private setup, PR #8
+  form login, CSRF rejection, CSV import, AI recommendations, approval,
+  exports, and logout.
+- Before creating an account, both smoke tests verify that public pages do not
+  reveal the setup token and that missing or incorrect setup tokens are denied.
+- Release tags must use semantic versions and point to commits already on
+  `main`.
