@@ -30,3 +30,16 @@ pull request.
 - Startup upgrades existing PR #8 databases without deleting accounts or
   employee records. The nullable employee link has a foreign key and unique
   index on both new and upgraded databases; repeated startup is safe.
+
+## C2c: Safe setup and account provisioning
+
+- PR #8's administrator form remains, but it now requires a private token from
+  the local launcher and closes permanently after the first account.
+- Public login responses never include the setup token or a private setup
+  redirect. Source users create the first administrator through the CLI or
+  an explicitly configured private setup link; CSRF remains required.
+- The setup page uses local CSS only and removes its token from browser history.
+- `create-user` keeps PR #8's email, display name, and role prompts. Viewer
+  accounts additionally require one unique active employee ID.
+- `SHIFTGUARD_DATABASE` can select the packaged database when provisioning
+  accounts from a source checkout.

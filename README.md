@@ -90,14 +90,16 @@ packages and the dashboard's Tailwind CSS, Lucide icons, and display fonts.
   predefined roles, plus recurring availability and historical staffing data.
   Running it again is safe because existing seed records are ignored.
 
-5. Start the application:
+5. Create the first administrator, then start the application:
 
   ```powershell
+  python -m flask --app app create-user --role admin
   python -m flask --app app run --debug
   ```
 
-  Open `http://127.0.0.1:5000`. On first launch, create the administrator
-  account with an email address and a password of at least 12 characters.
+  The account command prompts for an email address, display name, and password
+  of at least 12 characters. Skip it if an administrator already exists.
+  Open `http://127.0.0.1:5000` and sign in with that account.
   From another PowerShell terminal, verify the public health endpoint with:
 
   ```powershell
@@ -131,14 +133,16 @@ packages and the dashboard's Tailwind CSS, Lucide icons, and display fonts.
   python -m pip install -r requirements.txt
   ```
 
-3. Seed and run the application:
+3. Seed the application, create the first administrator, and start the server:
 
   ```bash
   python -m flask --app app seed-demo
+  python -m flask --app app create-user --role admin
   python -m flask --app app run --debug
   ```
 
-  Open `http://127.0.0.1:5000`, or verify the API from another terminal with
+  Skip `create-user` if an administrator already exists. Sign in at
+  `http://127.0.0.1:5000`, or verify the API from another terminal with
   `curl http://127.0.0.1:5000/api/health`. Stop Flask with `Ctrl+C`.
 
 4. Run the unit tests:
@@ -156,15 +160,24 @@ it is stopped.
 ShiftGuard uses Flask-Login sessions. Passwords are stored in SQLite as salted
 Werkzeug hashes and are never stored as plaintext. Browser mutations use
 Flask-WTF CSRF tokens. Signed-in sessions expire after eight hours, and a
-deactivated account is rejected on its next request. The first visit to a new
-installation opens a one-time administrator setup page; after an account
-exists, that page is disabled.
+deactivated account is rejected on its next request. The packaged launcher
+opens a private, one-time administrator setup page on first launch. Public
+login pages never reveal the setup token or redirect visitors to that private
+URL. After an account exists, setup is disabled.
 
 Additional accounts can be created interactively from the repository root:
 
 ```powershell
 python -m flask --app app create-user
 ```
+
+Viewer accounts must include `--employee-id ID`; manager and administrator
+accounts cannot use an employee link. The packaged launcher opens a private,
+one-time setup URL. For source installations, use the CLI instructions above
+to create the first administrator. Alternatively, configure
+`SHIFTGUARD_SETUP_TOKEN` with at least 32 random characters and privately open
+`http://127.0.0.1:5000/setup?token=YOUR_CONFIGURED_TOKEN` on the local server.
+Do not share this link or token; it authorizes creation of the first administrator.
 
 Viewers have read access, managers can change operational scheduling data, and
 administrators can also manage reference catalogs and import training data.
@@ -355,4 +368,3 @@ statistical guarantees.
   characteristics or hourly pay.
 - A production version still needs authentication, authorization, encrypted
   deployment, formal database migrations, monitoring, and bias evaluation.
-
