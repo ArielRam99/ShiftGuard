@@ -153,6 +153,13 @@ def _migrate_existing_database(database):
                     f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
                 )
 
+    if database.execute("PRAGMA table_info(users)").fetchone():
+        add_columns("users", {"employee_id": "INTEGER REFERENCES employees(id)"})
+        database.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_employee_id "
+            "ON users (employee_id)"
+        )
+
     add_columns(
         "employees",
         {
