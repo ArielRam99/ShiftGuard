@@ -5,6 +5,7 @@ import sqlite3
 from datetime import date, datetime
 
 from flask import Blueprint, jsonify, request, send_file
+from flask_login import current_user
 
 from .ai import SUPPORTED_MODELS, StaffingPredictor
 from .db import get_db
@@ -15,6 +16,15 @@ logger = logging.getLogger("shiftguard.audit")
 
 
 bp = Blueprint("api", __name__, url_prefix="/api")
+
+ADMIN_ENDPOINTS = {
+    "api.create_role",
+    "api.set_role_active",
+    "api.create_department",
+    "api.set_department_active",
+    "api.import_historical_staffing",
+}
+ROLE_LEVELS = {"viewer": 0, "manager": 1, "admin": 2}
 
 REFERENCE_CATALOGS = {
     "roles": "role",
@@ -28,6 +38,22 @@ class APIError(Exception):
         self.message = message
         self.status_code = status_code
         self.details = details or {}
+
+
+@bp.before_request
+def require_api_access():
+    if request.endpoint == "api.health":
+        return None
+    if not current_user.is_authenticated:
+        return jsonify({"error": "Authentication required"}), 401
+    required_level = 0
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        required_level = 1
+    if request.endpoint in ADMIN_ENDPOINTS:
+        required_level = 2
+    if ROLE_LEVELS.get(current_user.role, -1) < required_level:
+        return jsonify({"error": "You do not have permission for this action"}), 403
+    return None
 
 
 def register_error_handlers(app):
@@ -911,7 +937,7 @@ def decide_time_off(request_id):
     decision = _required_text(body, "decision").lower()
     if decision not in {"approved", "rejected"}:
         raise APIError("'decision' must be either 'approved' or 'rejected'")
-    manager_name = _required_text(body, "manager_name")
+    manager_name = current_user.display_name
     manager_note = body.get("manager_note")
     if manager_note is not None and not isinstance(manager_note, str):
         raise APIError("'manager_note' must be text")
@@ -1179,7 +1205,7 @@ def decide_shift(shift_id):
     decision = _required_text(body, "decision").lower()
     if decision not in {"approved", "rejected"}:
         raise APIError("'decision' must be either 'approved' or 'rejected'")
-    manager_name = _required_text(body, "manager_name")
+    manager_name = current_user.display_name
     manager_note = body.get("manager_note")
     if manager_note is not None and not isinstance(manager_note, str):
         raise APIError("'manager_note' must be text")

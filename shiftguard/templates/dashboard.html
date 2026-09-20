@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="ShiftGuard workforce scheduling dashboard">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>ShiftGuard | Scheduling Console</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -72,7 +73,9 @@
         <div class="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <div><p class="text-xs font-bold uppercase text-leaf">Workforce operations</p><h1 id="pageTitle" class="font-display text-3xl">Build a safe shift plan</h1></div>
           <div class="hidden items-center gap-2 sm:flex">
+            <span class="text-sm font-semibold">{{ current_user.display_name }}</span>
             <a href="/api/reports/schedules.xlsx" class="flex items-center gap-2 rounded-md border border-black/15 bg-white px-3 py-2 text-sm font-semibold hover:border-leaf"><i data-lucide="download" class="size-4"></i>Schedules</a>
+            <form method="post" action="{{ url_for('auth.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="grid size-10 place-items-center rounded-md border border-black/15 bg-white hover:border-leaf" title="Sign out" aria-label="Sign out"><i data-lucide="log-out" class="size-4"></i></button></form>
             <button id="refreshButton" type="button" class="grid size-10 place-items-center rounded-md border border-black/15 bg-white hover:border-leaf disabled:cursor-wait disabled:opacity-60" title="Refresh dashboard" aria-label="Refresh dashboard"><i data-lucide="refresh-cw" class="size-4"></i></button>
           </div>
         </div>
@@ -123,7 +126,6 @@
                 </div>
                 <div class="p-5 md:p-6"><div class="mb-4 flex items-center justify-between"><h3 class="font-bold">Recommended employees</h3><span id="candidateSummary" class="text-xs text-black/45"></span></div><div id="assignmentList" class="space-y-3"></div></div>
                 <div id="decisionPanel" class="border-t border-black/10 bg-[#f7f8f5] p-5 md:flex md:items-end md:gap-3 md:p-6">
-                  <label class="block flex-1"><span class="label">Manager name</span><input id="managerName" class="field" placeholder="Your name"></label>
                   <label class="mt-3 block flex-[1.5] md:mt-0"><span class="label">Decision note</span><input id="managerNote" class="field" placeholder="Optional review note"></label>
                   <div class="mt-3 flex gap-2 md:mt-0"><button data-decision="rejected" class="flex items-center gap-2 rounded-md border border-coral px-3 py-2.5 text-sm font-bold text-coral"><i data-lucide="x" class="size-4"></i>Reject</button><button data-decision="approved" class="flex items-center gap-2 rounded-md bg-forest px-3 py-2.5 text-sm font-bold text-white"><i data-lucide="check" class="size-4"></i>Approve</button></div>
                 </div>
