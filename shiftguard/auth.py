@@ -165,6 +165,16 @@ def create_user_command(email, display_name, role, password):
 
 def init_app(app):
     login_manager.login_view = "auth.login"
+    login_manager.session_protection = "strong"
+
+    @app.after_request
+    def prevent_sensitive_response_caching(response):
+        if request.path == "/" or request.path.startswith(
+            ("/api/", "/login", "/logout", "/setup")
+        ):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
+        return response
 
     @login_manager.unauthorized_handler
     def unauthorized():

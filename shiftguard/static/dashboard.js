@@ -13,8 +13,9 @@ async function api(path, options = {}) {
   if (!['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase())) {
     headers.set('X-CSRFToken', document.querySelector('meta[name="csrf-token"]').content);
   }
-  const response = await fetch(path, { ...options, headers });
+  const response = await fetch(path, { ...options, headers, credentials: 'same-origin' });
   const body = response.status === 204 ? null : await response.json().catch(() => ({}));
+  if (response.status === 401) window.location.replace('/login');
   if (!response.ok) {
     const error = new Error(body.error || `Request failed (${response.status})`);
     error.details = body.details;
@@ -217,7 +218,7 @@ function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+if (typeof document !== 'undefined') document.addEventListener('DOMContentLoaded', () => {
   initializeNavigation();
   const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
   document.querySelector('[name="shift_date"]').value = tomorrow.toISOString().slice(0, 10);
@@ -247,3 +248,5 @@ document.addEventListener('DOMContentLoaded', () => {
   lucide.createIcons();
   loadDashboard();
 });
+
+if (typeof module !== 'undefined') module.exports = { api };
