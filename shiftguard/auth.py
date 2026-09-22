@@ -1,8 +1,11 @@
 from functools import wraps
+import secrets
+import sqlite3
 from urllib.parse import urljoin, urlparse
 
 import click
-from flask import Blueprint, flash, redirect, render_template, request, session, url_for
+from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, session, url_for
+from flask.cli import with_appcontext
 from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
@@ -57,7 +60,7 @@ def login():
     if current_user.is_authenticated:
         return redirect(url_for("dashboard"))
     if get_db().execute("SELECT 1 FROM users LIMIT 1").fetchone() is None:
-        return redirect(url_for("auth.setup"))
+        flash("Administrator setup must be completed on the local server.", "error")
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         password = request.form.get("password", "")
@@ -80,6 +83,13 @@ def setup():
     database = get_db()
     if database.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None:
         return redirect(url_for("auth.login"))
+    supplied = request.values.get("setup_token") or request.args.get("token", "")
+    expected = current_app.config.get("SETUP_TOKEN")
+    if not (
+        isinstance(expected, str) and len(expected) >= 32
+        and isinstance(supplied, str) and secrets.compare_digest(expected, supplied)
+    ):
+        abort(403)
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
         display_name = request.form.get("display_name", "").strip()
@@ -94,17 +104,23 @@ def setup():
         elif password != confirmation:
             flash("Passwords do not match.", "error")
         else:
-            cursor = database.execute(
-                """
-                INSERT INTO users (email, display_name, password_hash, role)
-                VALUES (?, ?, ?, 'admin')
-                """,
-                (email, display_name, generate_password_hash(password)),
-            )
-            database.commit()
+            try:
+                database.execute("BEGIN IMMEDIATE")
+                if database.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+                    database.rollback()
+                    return redirect(url_for("auth.login"))
+                cursor = database.execute(
+                    """INSERT INTO users (email, display_name, password_hash, role)
+                       VALUES (?, ?, ?, 'admin')""",
+                    (email, display_name, generate_password_hash(password)),
+                )
+                database.commit()
+            except sqlite3.Error:
+                database.rollback()
+                raise
             login_user(load_user(str(cursor.lastrowid)))
             return redirect(url_for("dashboard"))
-    return render_template("setup.html")
+    return render_template("setup.html", setup_token=supplied)
 
 
 @bp.post("/logout")
@@ -137,8 +153,10 @@ def role_required(minimum_role):
     default="admin",
     show_default=True,
 )
+@click.option("--employee-id", type=click.IntRange(min=1))
 @click.password_option()
-def create_user_command(email, display_name, role, password):
+@with_appcontext
+def create_user_command(email, display_name, role, employee_id, password):
     """Create a ShiftGuard login account."""
     email = email.strip().lower()
     display_name = display_name.strip()
@@ -148,20 +166,27 @@ def create_user_command(email, display_name, role, password):
         raise click.ClickException("Display name cannot be empty.")
     if len(password) < 12:
         raise click.ClickException("Password must contain at least 12 characters.")
+    role = role.lower()
+    if role == "viewer" and employee_id is None:
+        raise click.ClickException("Viewer accounts require --employee-id.")
+    if role != "viewer" and employee_id is not None:
+        raise click.ClickException("Only viewer accounts can link to an employee.")
+    if employee_id is not None and get_db().execute(
+        "SELECT 1 FROM employees WHERE id = ? AND active = 1", (employee_id,)
+    ).fetchone() is None:
+        raise click.ClickException("Employee must exist and be active.")
     try:
         get_db().execute(
             """
-            INSERT INTO users (email, display_name, password_hash, role)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO users (email, display_name, password_hash, role, employee_id)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (email, display_name, generate_password_hash(password), role.lower()),
+            (email, display_name, generate_password_hash(password), role, employee_id),
         )
         get_db().commit()
-    except Exception as error:
-        if "UNIQUE constraint failed" in str(error):
-            raise click.ClickException("A user with that email already exists.") from error
-        raise
-    click.echo(f"Created {role.lower()} user {email}.")
+    except sqlite3.IntegrityError as error:
+        raise click.ClickException("Email and employee links must be unique.") from error
+    click.echo(f"Created {role} user {email}.")
 
 
 def init_app(app):

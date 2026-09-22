@@ -1,4 +1,5 @@
 import os
+import secrets
 import threading
 import webbrowser
 from pathlib import Path
@@ -35,6 +36,13 @@ def main():
         {"DATABASE": str(data_directory / "shiftguard.sqlite")}
     )
     _seed_empty_installation(app)
+    with app.app_context():
+        if get_db().execute("SELECT 1 FROM users LIMIT 1").fetchone() is None:
+            token = os.environ.get("SHIFTGUARD_SETUP_TOKEN") or secrets.token_urlsafe(32)
+            if len(token) < 32 or not token.isascii():
+                raise RuntimeError("Setup token must contain at least 32 ASCII characters")
+            app.config["SETUP_TOKEN"] = token
+            url = f"{url}/setup?token={token}"
 
     if os.environ.get("SHIFTGUARD_NO_BROWSER") != "1":
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
