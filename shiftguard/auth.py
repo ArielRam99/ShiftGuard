@@ -23,6 +23,7 @@ class User(UserMixin):
         self.email = row["email"]
         self.display_name = row["display_name"]
         self.role = row["role"]
+        self.employee_id = row["employee_id"]
         self.active = bool(row["active"])
 
     @property
@@ -35,7 +36,7 @@ def load_user(user_id):
     if not user_id.isdigit():
         return None
     row = get_db().execute(
-        "SELECT id, email, display_name, role, active FROM users WHERE id = ?",
+        "SELECT id, email, display_name, role, employee_id, active FROM users WHERE id = ?",
         (int(user_id),),
     ).fetchone()
     return User(row) if row is not None and row["active"] else None
@@ -165,6 +166,16 @@ def create_user_command(email, display_name, role, password):
 
 def init_app(app):
     login_manager.login_view = "auth.login"
+    login_manager.session_protection = "strong"
+
+    @app.after_request
+    def prevent_sensitive_response_caching(response):
+        if request.path == "/" or request.path.startswith(
+            ("/api/", "/login", "/logout", "/setup")
+        ):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Pragma"] = "no-cache"
+        return response
 
     @login_manager.unauthorized_handler
     def unauthorized():

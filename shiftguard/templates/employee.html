@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My approved shifts | ShiftGuard</title>
+  <style>
+    body { max-width: 60rem; margin: 3rem auto; padding: 1rem; font: 1rem system-ui; color: #17201c; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: .7rem; border-bottom: 1px solid #ddd; }
+  </style>
+</head>
+<body>
+  <h1>My approved shifts</h1>
+  <p>Signed in as {{ current_user.display_name }}. Only your approved assignments appear here.</p>
+  <form method="post" action="{{ url_for('auth.logout') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button>Sign out</button>
+  </form>
+  <table>
+    <thead><tr><th>Date</th><th>Start</th><th>End</th><th>Role</th><th>Department</th></tr></thead>
+    <tbody>{% for shift in shifts %}<tr>
+      <td>{{ shift.shift_date }}</td><td>{{ shift.start_time }}</td><td>{{ shift.end_time }}</td>
+      <td>{{ shift.required_role }}</td><td>{{ shift.required_department or 'General' }}</td>
+    </tr>{% else %}<tr><td colspan="5">No approved shifts assigned yet.</td></tr>{% endfor %}</tbody>
+  </table>
+</body>
+</html>

@@ -74,6 +74,33 @@ paths:
                   - random_forest
                   - gradient_boosting
                   - linear_regression
+  /api/me/shifts:
+    get:
+      tags: [Employees]
+      operationId: listMyApprovedShifts
+      summary: List the signed-in viewer's approved shift assignments
+      responses:
+        "200":
+          description: Approved assignments for the linked employee only.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [shifts]
+                properties:
+                  shifts:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, shift_date, start_time, end_time, required_role, status]
+                      properties:
+                        id: {type: integer}
+                        shift_date: {type: string, format: date}
+                        start_time: {$ref: "#/components/schemas/LocalTime"}
+                        end_time: {$ref: "#/components/schemas/LocalTime"}
+                        required_role: {type: string}
+                        required_department: {type: [string, "null"]}
+                        status: {type: string, const: approved}
   /api/model/comparison:
     get:
       tags: [System]

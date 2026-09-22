@@ -8,15 +8,18 @@ from shiftguard import create_app
 from shiftguard.db import get_db
 
 
-def _add_user(app, email, role):
+def _add_user(app, email, role, employee_id=None):
     with app.app_context():
         database = get_db()
         database.execute(
             """
-            INSERT INTO users (email, display_name, password_hash, role)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO users (email, display_name, password_hash, role, employee_id)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (email, "Read Only User", generate_password_hash("viewer-password-123"), role),
+            (
+                email, "Read Only User",
+                generate_password_hash("viewer-password-123"), role, employee_id,
+            ),
         )
         database.commit()
 
@@ -117,17 +120,39 @@ def test_short_configured_secret_is_rejected(monkeypatch, tmp_path):
         create_app({"TESTING": True, "DATABASE": str(tmp_path / "secret.sqlite")})
 
 
-def test_viewer_can_read_but_cannot_mutate(app):
-    _add_user(app, "viewer@example.com", "viewer")
+def test_viewer_is_limited_to_linked_employee(app, client):
+    employee_id = client.post(
+        "/api/employees", json={"name": "Linked Viewer", "role": "Nurse"}
+    ).get_json()["id"]
+    other_id = client.post(
+        "/api/employees", json={"name": "Other Employee", "role": "Nurse"}
+    ).get_json()["id"]
+    _add_user(app, "viewer@example.com", "viewer", employee_id)
     viewer = app.test_client()
     viewer.post(
         "/login",
         data={"email": "viewer@example.com", "password": "viewer-password-123"},
     )
 
-    assert viewer.get("/api/employees").status_code == 200
+    assert viewer.get("/").headers["Location"].endswith("/my-shifts")
+    assert viewer.get("/api/employees").status_code == 403
+    assert viewer.get(f"/api/employees/{employee_id}").status_code == 200
+    assert viewer.get(f"/api/employees/{other_id}").status_code == 403
+    assert viewer.get("/api/me/shifts").get_json() == {"shifts": []}
     forbidden = viewer.post("/api/roles", json={"name": "Forbidden Role"})
     assert forbidden.status_code == 403
+
+
+def test_viewer_requires_active_employee_link(app):
+    _add_user(app, "viewer@example.com", "viewer")
+    viewer = app.test_client()
+    viewer.post(
+        "/login",
+        data={"email": "viewer@example.com", "password": "viewer-password-123"},
+    )
+    response = viewer.get("/api/me/shifts")
+    assert response.status_code == 403
+    assert response.get_json()["error"] == "An active employee link is required"
 
 
 def test_api_mutations_require_csrf_token(app, client):
@@ -145,3 +170,10 @@ def test_api_mutations_require_csrf_token(app, client):
         headers={"X-CSRFToken": token},
     )
     assert accepted.status_code == 201
+
+
+def test_session_responses_are_not_cached(client):
+    for path in ("/", "/api/employees"):
+        response = client.get(path)
+        assert response.headers["Cache-Control"] == "no-store"
+        assert response.headers["Pragma"] == "no-cache"
