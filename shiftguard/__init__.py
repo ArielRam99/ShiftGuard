@@ -3,10 +3,10 @@ import secrets
 from datetime import timedelta
 from pathlib import Path
 
-from flask import Flask, render_template, send_from_directory
-from flask_login import login_required
+from flask import Flask, abort, redirect, render_template, send_from_directory, url_for
+from flask_login import current_user, login_required
 
-from . import api, auth, db
+from . import access, api, auth, db
 from .logging_config import configure_logging
 
 
@@ -59,7 +59,18 @@ def create_app(test_config=None):
     @app.get("/")
     @login_required
     def dashboard():
+        if current_user.role == "viewer":
+            return redirect(url_for("my_shifts_page"))
         return render_template("dashboard.html")
+
+    @app.get("/my-shifts")
+    @login_required
+    def my_shifts_page():
+        if current_user.role != "viewer":
+            return redirect(url_for("dashboard"))
+        if access.linked_employee_id() is None:
+            abort(403)
+        return render_template("employee.html", shifts=access.assigned_shifts())
 
     @app.get("/sample-data.csv")
     @login_required
