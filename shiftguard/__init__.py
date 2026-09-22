@@ -6,7 +6,7 @@ from pathlib import Path
 from flask import Flask, abort, redirect, render_template, send_from_directory, url_for
 from flask_login import current_user, login_required
 
-from . import access, api, auth, db
+from . import access, api, audit, auth, db
 from .logging_config import configure_logging
 
 
@@ -51,6 +51,7 @@ def create_app(test_config=None):
     auth.init_app(app)
     app.register_blueprint(api.bp)
     api.register_error_handlers(app)
+    audit.init_app(app)
 
     # The schema uses CREATE TABLE IF NOT EXISTS, so startup is safe and
     # first-time users do not need a separate migration step for this MVP.
